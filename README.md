@@ -31,9 +31,9 @@ Maizone插件，包含发说说、读说说（点赞评论）功能
 
 ### 设置Napcat http服务器端口
 
-![](C:\Users\14739\AppData\Roaming\Typora\typora-user-images\image-20250709013929594.png)
+![](napcat1.png)
 
-![联想截图_20250709013628](C:\Users\14739\Pictures\联想截图\联想截图_20250709013628.png)
+![napcat2.png)
 
 启用后在配置文件config.toml（若无则先启动一次）中填写上在napcat中设置的端口号（默认9999）
 
