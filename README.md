@@ -33,7 +33,7 @@ Maizone插件，包含发说说、读说说（点赞评论）功能
 
 ![](napcat1.png)
 
-![napcat2.png)
+![](napcat2.png)
 
 启用后在配置文件config.toml（若无则先启动一次）中填写上在napcat中设置的端口号（默认9999）
 
