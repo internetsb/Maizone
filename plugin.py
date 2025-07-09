@@ -944,7 +944,7 @@ class MaizonePlugin(BasePlugin):
             }
         },
         "send": {
-            "enable_image": ConfigField(type=bool, default=True, description="是否启用带图片的说说"),
+            "enable_image": ConfigField(type=bool, default=False, description="是否启用带图片的说说"),
             "enable_ai_image": ConfigField(type=bool, default=False, description="是否启用Ai生成带图片的说说（暂时没用）"),
             "image_directory": ConfigField(type=str, default="./plugins/Maizone/images", description="图片存储目录")
         },
