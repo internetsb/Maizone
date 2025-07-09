@@ -1,4 +1,4 @@
-from typing import List, Tuple, Type, Dict, Any, Optional, Awaitable
+from typing import List, Tuple, Type, Any
 import httpx
 import json
 import os
@@ -15,7 +15,7 @@ import sys
 
 from src.plugin_system import (
     BasePlugin, register_plugin, BaseAction,
-    ComponentInfo, ActionActivationType, ChatMode,
+    ComponentInfo, ActionActivationType,
     BaseCommand
 )
 from src.common.logger import get_logger
@@ -621,10 +621,9 @@ async def like_feed(qq_account: str, target_qq: str,fid: str):
 
     success = await qzone.like(fid, target_qq)
     if not success:
-        return success
         logger.error("点赞失败")
         logger.error(traceback.format_exc())
-        return False
+        return success
     return True
 
 async def comment_feed(qq_account: str, target_qq: str,fid: str,content: str):
@@ -734,18 +733,8 @@ class SendFeedCommand(BaseCommand):
         success = await send_feed(story, image_dir, qq_account, enable_image)
         if not success:
             return False, "发送说说失败"
-
-        # 生成回复
-        success, reply_set = await generator_api.generate_reply(
-            chat_stream=self.chat_stream,
-        )
-
-        if success and reply_set:
-            reply_type, reply_content = reply_set[0]
-            await self.send_text(reply_content)
-            return True, 'success'
-
-        return False, '生成回复失败'
+        await self.send_text(f"已发送说说{story}")
+        return True, 'success'
 
 
 # ===== 插件Action组件 =====
