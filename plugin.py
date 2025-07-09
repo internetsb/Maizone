@@ -19,7 +19,7 @@ from src.plugin_system import (
     BaseCommand
 )
 from src.common.logger import get_logger
-from src.plugin_system.apis import llm_api, config_api, emoji_api, person_api
+from src.plugin_system.apis import llm_api, config_api, emoji_api, person_api, generator_api
 from src.plugin_system.base.config_types import ConfigField
 
 logger = get_logger('Maizone')
@@ -168,7 +168,7 @@ class QzoneAPI:
     UPLOAD_IMAGE_URL = "https://up.qzone.qq.com/cgi-bin/upload/cgi_upload_image"
     EMOTION_PUBLISH_URL = "https://user.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_publish_v6"
     DOLIKE_URL = "https://user.qzone.qq.com/proxy/domain/w.qzone.qq.com/cgi-bin/likes/internal_dolike_app"
-    COMMEND_URL = "https://user.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_re_feeds"
+    COMMENT_URL = "https://user.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_re_feeds"
     LIST_URL = "https://user.qzone.qq.com/proxy/domain/taotao.qq.com/cgi-bin/emotion_cgi_msglist_v6"
 
     def __init__(self, cookies_dict: dict = {}):
@@ -345,7 +345,7 @@ class QzoneAPI:
         else:
             raise Exception("点赞失败: " + res.text)
 
-    async def commend(self, fid: str, target_qq: str, content: str) -> bool:
+    async def comment(self, fid: str, target_qq: str, content: str) -> bool:
         """评论指定说说"""
         uin = self.uin
         post_data ={
@@ -364,7 +364,7 @@ class QzoneAPI:
         }
         res = await self.do(
             method="POST",
-            url=self.COMMEND_URL,
+            url=self.COMMENT_URL,
             params={
                 "g_tk": self.gtk2,
             } ,
@@ -396,6 +396,7 @@ class QzoneAPI:
                 "callback": "_preloadCallback",
                 "code_version": 1,
                 "format": "jsonp",
+                "need_comment" : 1,
                 "need_private_comment": 1
             } ,
             headers={
@@ -420,13 +421,26 @@ class QzoneAPI:
             # 2. 解析JSON数据
             json_data = json.loads(json_str)
 
+            # print(json_data)
             # 3. 提取说说内容
             feeds_list = []
             for msg in json_data.get("msglist", []):
                 tid = msg.get("tid", "")
                 content = msg.get("content", "")
+                logger.info(f"正在阅读说说内容: {content}")
 
-                if tid and content:
+                is_comment = False
+                person_id = person_api.get_person_id("qq", self.uin)
+                uin_nickname = await person_api.get_person_value(person_id, "nickname", "未知用户")
+                if 'conmentlist' in msg:
+                    for comment in msg.get("commentlist", []):
+                        qq_nickname = comment.get("name")
+                        if uin_nickname in qq_nickname:
+                            logger.info('已评论过此说说，即将跳过')
+                            is_comment = True
+                            break
+
+                if tid and content and not is_comment:
                     # 存储结果
                     feeds_list.append({"tid": tid, "content": content})
 
@@ -613,7 +627,7 @@ async def like_feed(qq_account: str, target_qq: str,fid: str):
         return False
     return True
 
-async def commend_feed(qq_account: str, target_qq: str,fid: str,content: str):
+async def comment_feed(qq_account: str, target_qq: str,fid: str,content: str):
     cookie_file = get_cookie_file_path(qq_account)
     qrcode_file = os.path.join(os.getcwd(),'plugins/Maizone/qrcode.png')
 
@@ -656,7 +670,7 @@ async def commend_feed(qq_account: str, target_qq: str,fid: str,content: str):
         logger.error("Cookies 过期或无效")
         return False
 
-    success = await qzone.commend(fid, target_qq,content)
+    success = await qzone.comment(fid, target_qq,content)
     if not success:
         logger.error("评论失败")
         logger.error(traceback.format_exc())
@@ -721,9 +735,17 @@ class SendFeedCommand(BaseCommand):
         if not success:
             return False, "发送说说失败"
 
-        send_ok_message = self.get_config("send.send_ok_message", "我刚发了一条说说啦~")
-        await self.send_text(send_ok_message)
-        return True, f"成功发送主题: {topic if topic else '随机'}"
+        # 生成回复
+        success, reply_set = await generator_api.generate_reply(
+            chat_stream=self.chat_stream,
+        )
+
+        if success and reply_set:
+            reply_type, reply_content = reply_set[0]
+            await self.send_text(reply_content)
+            return True, 'success'
+
+        return False, '生成回复失败'
 
 
 # ===== 插件Action组件 =====
@@ -787,11 +809,18 @@ class SendFeedAction(BaseAction):
         success = await send_feed(story, image_dir, qq_account, enable_image)
         if not success:
             return False, "发送说说失败"
-
-        send_ok_message = self.get_config("send.send_ok_message", "我刚发了一条说说啦~")
-        await self.send_text(send_ok_message)
         logger.info(f"成功发送说说: {story}")
-        return True, f"成功发送主题: {topic}"
+        # 生成回复
+        success, reply_set = await generator_api.generate_reply(
+            chat_stream=self.chat_stream,
+        )
+
+        if success and reply_set:
+            reply_type, reply_content = reply_set[0]
+            await self.send_text(reply_content)
+
+            return True, 'success'
+        return False, '生成回复失败'
 
 class ReadFeedAction(BaseAction):
     """读说说Action - 只在用户要求读说说时激活"""
@@ -836,7 +865,7 @@ class ReadFeedAction(BaseAction):
         #获取指定好友最近的说说
         num = self.get_config("read.read_number", 5)
         like_possibility = self.get_config("read.like_possibility", 1.0)
-        commend_possibility = self.get_config("read.commend_possibility", 1.0)
+        comment_possibility = self.get_config("read.comment_possibility", 1.0)
         feeds_list = await read_feed(qq_account,target_qq,num)
         logger.info(f"成功读取到{len(feeds_list)}条说说")
         #生成评论
@@ -852,11 +881,11 @@ class ReadFeedAction(BaseAction):
             time.sleep(3)
             content = feed["content"]
             fid = feed["tid"]
-            if random.random() <= commend_possibility:
+            if random.random() <= comment_possibility:
                 #评论说说
                 prompt = f"你是{bot_personality}，你的表达风格是{bot_expression}，请对你的好友{target_name}qq空间上内容为'{content}'的说说发表你的评论，确保符合人设，口语化，不要将理由写在括号中，不违反法律法规"
                 logger.info(f'正在评论{target_name}的说说：{content[:20]}...')
-                success, commend, reasoning, model_name = await llm_api.generate_with_model(
+                success, comment, reasoning, model_name = await llm_api.generate_with_model(
                     prompt=prompt,
                     model_config=model_config,
                     request_type="story.generate",
@@ -867,13 +896,13 @@ class ReadFeedAction(BaseAction):
                 if not success:
                     return False, "生成评论内容失败"
 
-                logger.info(f"成功生成评论内容：'{commend}'，即将发送")
+                logger.info(f"成功生成评论内容：'{comment}'，即将发送")
 
-                success = await commend_feed(qq_account,target_qq,fid,commend)
+                success = await comment_feed(qq_account,target_qq,fid,comment)
                 if not success:
                     logger.error(f"评论说说{content}失败")
                     return False, "评论说说失败"
-                logger.info(f"发送评论'{commend}'成功")
+                logger.info(f"发送评论'{comment}'成功")
             # 点赞说说
             if random.random() <= like_possibility:
                 success = await like_feed(qq_account,target_qq,fid)
@@ -882,9 +911,17 @@ class ReadFeedAction(BaseAction):
                     return False, "点赞说说失败"
                 logger.info(f'点赞说说{content[:10]}..成功')
 
-        read_ok_message = self.get_config("read.read_ok_message", "我已经读了说说啦~")
-        await self.send_text(read_ok_message)
-        return True, f"成功阅读{len(feeds_list)}条说说:"
+        # 生成回复
+        success, reply_set = await generator_api.generate_reply(
+            chat_stream=self.chat_stream,
+        )
+
+        if success and reply_set:
+            reply_type, reply_content = reply_set[0]
+            await self.send_text(reply_content)
+            return True, 'success'
+
+        return False, '生成回复失败'
 
 # ===== 插件注册 =====
 @register_plugin
@@ -907,7 +944,6 @@ class MaizonePlugin(BasePlugin):
 
     config_schema = {
         "plugin": {
-            "enabled": ConfigField(type=bool, default=True, description="是否启用插件"),
             "http_port": ConfigField(type=str, default='9999', description="Napcat设定http服务器端口号"),
             "cookie_directory": ConfigField(type=str, default='./plugins/Maizone', description="生成cookie的目录"),
         },
@@ -921,16 +957,12 @@ class MaizonePlugin(BasePlugin):
         "send": {
             "enable_image": ConfigField(type=bool, default=True, description="是否启用带图片的说说"),
             "enable_ai_image": ConfigField(type=bool, default=False, description="是否启用Ai生成带图片的说说（暂时没用）"),
-            "send_ok_message": ConfigField(type=str, default="我刚发了一条说说啦~",
-                                           description="成功发送说说后发送的消息"),
             "image_directory": ConfigField(type=str, default="./plugins/Maizone/images", description="图片存储目录")
         },
         "read": {
-            "read_number" : ConfigField(type=int,default=5,description="麦麦一次读取的说说数量"),
+            "read_number" : ConfigField(type=int,default=5,description="一次读取最新的几条说说"),
             "like_possibility" : ConfigField(type=float,default=1.0,description="麦麦读说说后点赞的概率（0到1）"),
-            "commend_possibility" : ConfigField(type=float,default=1.0,description="麦麦读说说后评论的概率（0到1）"),
-            "read_ok_message" : ConfigField(type=str, default="我已经读了说说了哦~",
-                                           description="成功阅读说说后发送的消息"),
+            "comment_possibility" : ConfigField(type=float,default=1.0,description="麦麦读说说后评论的概率（0到1）"),
         },
     }
 
