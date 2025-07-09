@@ -2,7 +2,7 @@
 
 > [!WARNING]
 >
-> 该插件仍在开发阶段，开发者水平稀烂，可能出现大量bug
+> 该插件仍在开发阶段，开发者水平稀烂，可能出现大量bug，任何问题或建议请联系qq：1523640161
 
 
 
@@ -26,8 +26,18 @@ Maizone插件，包含发说说、读说说（点赞评论）功能
 ### 安装插件
 
 1. 下载或克隆本仓库
+
 2. 将`Maizone/`文件夹放入`MaiBot/plugins`文件夹下
-3. 启动一次以生成`config.toml`配置文件
+
+3. 安装相应依赖
+
+   ```bash
+   pip install -i https://mirrors.aliyun.com/pypi/simple -r .\requirements.txt --upgrade
+   ```
+
+   
+
+4. 启动一次以生成`config.toml`配置文件
 
 ### 设置Napcat http服务器端口
 
@@ -51,4 +61,3 @@ Maizone插件，包含发说说、读说说（点赞评论）功能
 ## 参考
 
 部分代码来自仓库：https://github.com/gfhdhytghd/qzone-toolkit
-
