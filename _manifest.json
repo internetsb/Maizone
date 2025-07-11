@@ -1,7 +1,7 @@
 {
   "manifest_version": 1,
   "name": "Maizone",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "让你的麦麦发QQ空间，评论，点赞",
   "author": {
     "name": "internetsb",
