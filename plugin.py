@@ -1,24 +1,26 @@
-from typing import List, Tuple, Type, Any
-import httpx
+import asyncio
+import base64
 import json
 import os
-import time
 import random
-import base64
-import requests
-import asyncio
 import re
-import traceback
-import typing
 import subprocess
 import sys
+import time
+import traceback
+import typing
+from typing import List, Tuple, Type, Any
 
+import httpx
+import requests
+
+from src.chat.utils.utils_image import get_image_manager
+from src.common.logger import get_logger
 from src.plugin_system import (
     BasePlugin, register_plugin, BaseAction,
     ComponentInfo, ActionActivationType,
     BaseCommand
 )
-from src.common.logger import get_logger
 from src.plugin_system.apis import llm_api, config_api, emoji_api, person_api, generator_api
 from src.plugin_system.base.config_types import ConfigField
 
@@ -67,7 +69,6 @@ async def renew_cookies(port: str):
     with open(file_path, "w") as f:
         json.dump(parsed_cookies, f, indent=4, ensure_ascii=False)
     logger.info(f"[OK] cookies 已保存至: {file_path}")
-
 
 def generate_gtk(skey: str) -> str:
     """生成gtk"""
@@ -219,6 +220,19 @@ class QzoneAPI:
     def image_to_base64(self, image: bytes) -> str:
         pic_base64 = base64.b64encode(image)
         return str(pic_base64)[2:-1]
+
+    async def get_image_base64_by_url(self, url: str) -> str:
+        res = await self.do(
+            method="GET",
+            url=url,
+            timeout=60
+        )
+        # 获取图片二进制数据
+        image_data = res.content
+
+        # 转换为Base64
+        base64_str = base64.b64encode(image_data).decode('utf-8')
+        return base64_str
 
     async def upload_image(self, image: bytes) -> str:
         res = await self.do(
@@ -420,38 +434,50 @@ class QzoneAPI:
         try:
             # 2. 解析JSON数据
             json_data = json.loads(json_str)
+            uin_nickname = json_data.get('logininfo').get('name')
 
-            # print(json_data)
+            #print(json_data)
+
+            if json_data.get('code') != 0:
+                return [{"error" : json_data.get('message')}]
             # 3. 提取说说内容
             feeds_list = []
             for msg in json_data.get("msglist", []):
-                tid = msg.get("tid", "")
-                content = msg.get("content", "")
-                logger.info(f"正在阅读说说内容: {content}")
-
+                #已评论过的说说不再阅读
                 is_comment = False
-                person_id = person_api.get_person_id("qq", self.uin)
-                uin_nickname = await person_api.get_person_value(person_id, "nickname", "未知用户")
-                if 'conmentlist' in msg:
+                if 'commentlist' in msg:
                     for comment in msg.get("commentlist", []):
                         qq_nickname = comment.get("name")
-                        if uin_nickname in qq_nickname:
+                        if uin_nickname == qq_nickname:
                             logger.info('已评论过此说说，即将跳过')
                             is_comment = True
                             break
 
-                if tid and content and not is_comment:
+                if not is_comment:
                     # 存储结果
-                    feeds_list.append({"tid": tid, "content": content})
-
+                    tid = msg.get("tid", "")
+                    content = msg.get("content", "")
+                    logger.info(f"正在阅读说说内容: {content}")
+                    # 提取图片信息
+                    images = []
+                    if 'pic' in msg:
+                        for pic in msg['pic']:
+                            # 按优先级获取图片URL
+                            url = pic.get('url1') or pic.get('pic_id') or pic.get('smallurl')
+                            if url:
+                                image_base64 = await self.get_image_base64_by_url(url)
+                                image_manager = get_image_manager()
+                                image_description = await image_manager.get_image_description(image_base64)
+                                images.append(image_description)
+                    feeds_list.append({"tid": tid,
+                                       "content": content,
+                                       "images": images})
+            if len(feeds_list) == 0:
+                return [{"error" : '你已经看过所有说说了，没有必要再看一遍'}]
             return feeds_list
 
-        except json.JSONDecodeError as e:
-            print(f"JSON解析失败: {e}")
-            return []
         except Exception as e:
-            print(f"处理出错: {e}")
-            return []
+            return [{"error" : f'{e},你没有看到任何东西，可能是空间主人从未发布过说说'}]
 
 
 
@@ -570,6 +596,7 @@ async def read_feed(qq_account: str,target_qq: str, num : int):
 
     try:
         feeds_list = await qzone.get_list(target_qq,num)
+        print(feeds_list)
         return feeds_list
     except Exception as e:
         logger.error("获取list失败")
@@ -856,8 +883,9 @@ class ReadFeedAction(BaseAction):
         like_possibility = self.get_config("read.like_possibility", 1.0)
         comment_possibility = self.get_config("read.comment_possibility", 1.0)
         feeds_list = await read_feed(qq_account,target_qq,num)
-        logger.info(f"成功读取到{len(feeds_list)}条说说")
-        #生成评论
+        if 'error' not in feeds_list[0]:
+          logger.info(f"成功读取到{len(feeds_list)}条说说")
+        #模型配置
         models = llm_api.get_available_models()
         text_model = self.get_config("models.text_model", "replyer_1")
         model_config = getattr(models, text_model, None)
@@ -866,9 +894,26 @@ class ReadFeedAction(BaseAction):
 
         bot_personality = config_api.get_global_config("personality.personality_core", "一个机器人")
         bot_expression = config_api.get_global_config("expression.expression_style", "内容积极向上")
+        #错误处理，如对方设置了访问权限
+        if 'error' in feeds_list[0]:
+            success, reply_set = await generator_api.generate_reply(
+                chat_stream=self.chat_stream,
+                action_data={"extra_info_block" : f'你在读取说说的时候出现了错误，错误原因：{feeds_list[0].get("error")}'}
+            )
+
+            if success and reply_set:
+                reply_type, reply_content = reply_set[0]
+                await self.send_text(reply_content)
+                return True, 'success'
+
+            return False, '生成回复失败'
+        #逐条点赞回复
         for feed in feeds_list:
             time.sleep(3)
             content = feed["content"]
+            if feed["images"]:
+                for image in feed["images"]:
+                    content = content + image
             fid = feed["tid"]
             if random.random() <= comment_possibility:
                 #评论说说
@@ -919,7 +964,7 @@ class MaizonePlugin(BasePlugin):
 
     plugin_name = "Maizone"
     plugin_description = "让麦麦实现QQ空间点赞、评论、发说说"
-    plugin_version = "0.4.0"
+    plugin_version = "0.5.0"
     plugin_author = "internetsb"
     enable_plugin = True
     config_file_name = "config.toml"
