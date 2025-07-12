@@ -1,14 +1,9 @@
-import asyncio
 import base64
 import json
 import os
 import random
-import re
-import subprocess
-import sys
 import time
 import traceback
-import typing
 from typing import List, Tuple, Type, Any
 
 import httpx
@@ -98,71 +93,6 @@ def get_picbo_and_richval(upload_result):
                                                  json_data['data']['height'], json_data['data']['width'])
 
     return picbo, richval
-
-
-class QzoneLogin:
-    """qq空间二维码登录"""
-    def __init__(self):
-        pass
-
-    def getptqrtoken(self, qrsig):
-        e = 0
-        for i in range(1, len(qrsig) + 1):
-            e += (e << 5) + ord(qrsig[i - 1])
-        return str(2147483647 & e)
-
-    async def check_cookies(self, cookies: dict) -> bool:
-        # 占位符：验证cookies
-        return True
-
-    async def login_via_qrcode(
-            self,
-            qrcode_callback: typing.Callable[[bytes], typing.Awaitable[None]],
-            max_timeout_times: int = 3,
-    ) -> dict:
-        qrcode_url = "https://ssl.ptlogin2.qq.com/ptqrshow?appid=549000912&e=2&l=M&s=3&d=72&v=4&t=0.31232733520361844&daid=5&pt_3rd_aid=0"
-        login_check_url = "https://xui.ptlogin2.qq.com/ssl/ptqrlogin?u1=https://qzs.qq.com/qzone/v5/loginsucc.html?para=izone&ptqrtoken={}&ptredirect=0&h=1&t=1&g=1&from_ui=1&ptlang=2052&action=0-0-1656992258324&js_ver=22070111&js_type=1&login_sig=&pt_uistyle=40&aid=549000912&daid=5&has_onekey=1&&o1vId=1e61428d61cb5015701ad73d5fb59f73"
-        check_sig_url = "https://ptlogin2.qzone.qq.com/check_sig?pttype=1&uin={}&service=ptqrlogin&nodirect=1&ptsigx={}&s_url=https://qzs.qq.com/qzone/v5/loginsucc.html?para=izone&f_url=&ptlang=2052&ptredirect=100&aid=549000912&daid=5&j_later=0&low_login_hour=0&regmaster=0&pt_login_type=3&pt_aid=0&pt_aaid=16&pt_light=0&pt_3rd_aid=0"
-
-        for i in range(max_timeout_times):
-            req = requests.get(qrcode_url)
-            qrsig = ''
-            set_cookie = req.headers['Set-Cookie']
-            set_cookies_set = req.headers['Set-Cookie'].split(";")
-            for set_cookies in set_cookies_set:
-                if set_cookies.startswith("qrsig"):
-                    qrsig = set_cookies.split("=")[1]
-                    break
-            if qrsig == '':
-                raise Exception("qrsig is empty")
-
-            ptqrtoken = self.getptqrtoken(qrsig)
-            await qrcode_callback(req.content)
-
-            while True:
-                await asyncio.sleep(2)
-                req = requests.get(login_check_url.format(ptqrtoken), cookies={"qrsig": qrsig})
-                if req.text.find("二维码已失效") != -1:
-                    break
-                if req.text.find("登录成功") != -1:
-                    response_header_dict = req.headers
-                    url = eval(req.text.replace("ptuiCB", ""))[2]
-                    m = re.findall(r"ptsigx=[A-z \d]*&", url)
-                    ptsigx = m[0].replace("ptsigx=", "").replace("&", "")
-                    m = re.findall(r"uin=[\d]*&", url)
-                    uin = m[0].replace("uin=", "").replace("&", "")
-                    res = requests.get(check_sig_url.format(uin, ptsigx), cookies={"qrsig": qrsig},
-                                       headers={'Cookie': response_header_dict['Set-Cookie']})
-                    final_cookie = res.headers['Set-Cookie']
-                    final_cookie_dict = {}
-                    for set_cookie in final_cookie.split(";, "):
-                        for cookie in set_cookie.split(";"):
-                            spt = cookie.split("=")
-                            if len(spt) == 2 and final_cookie_dict.get(spt[0]) is None:
-                                final_cookie_dict[spt[0]] = spt[1]
-                    return final_cookie_dict
-        raise Exception("{}次尝试失败".format(max_timeout_times))
-
 
 class QzoneAPI:
     #QQ空间cgi常量
@@ -426,7 +356,7 @@ class QzoneAPI:
 
         data = res.text
         if data.startswith('_preloadCallback(') and data.endswith(');'):
-            # 去掉首尾的 _preloadCallback( 和 );
+            # 去掉res首尾的 _preloadCallback( 和 );
             json_str = data[len('_preloadCallback('):-2]
         else:
             json_str = data
@@ -446,12 +376,14 @@ class QzoneAPI:
                 #已评论过的说说不再阅读
                 is_comment = False
                 if 'commentlist' in msg:
-                    for comment in msg.get("commentlist", []):
-                        qq_nickname = comment.get("name")
-                        if uin_nickname == qq_nickname:
-                            logger.info('已评论过此说说，即将跳过')
-                            is_comment = True
-                            break
+                    commentlist = msg.get("commentlist")
+                    if isinstance(commentlist, list):  # 确保一定是可迭代的列表
+                        for comment in commentlist:
+                            qq_nickname = comment.get("name")
+                            if uin_nickname == qq_nickname:
+                                logger.info('已评论过此说说，即将跳过')
+                                is_comment = True
+                                break
 
                 if not is_comment:
                     # 存储结果
@@ -477,15 +409,14 @@ class QzoneAPI:
             return feeds_list
 
         except Exception as e:
-            return [{"error" : f'{e},你没有看到任何东西，可能是空间主人从未发布过说说'}]
+            logger.error(str(json_data))
+            return [{"error" : f'{e},你没有看到任何东西'}]
 
 
 
 
 async def send_feed(message: str, image_directory: str, qq_account: str, enable_image : bool):
     cookie_file = get_cookie_file_path(qq_account)
-    qrcode_file = os.path.join(os.getcwd(),'plugins/Maizone/qrcode.png')
-
     if os.path.exists(cookie_file):
         try:
             with open(cookie_file, 'r') as f:
@@ -494,31 +425,6 @@ async def send_feed(message: str, image_directory: str, qq_account: str, enable_
             cookies = None
     else:
         cookies = None
-
-    if not cookies:
-        login = QzoneLogin()
-
-        async def qrcode_callback(qrcode: bytes):
-            with open(qrcode_file, "wb") as f:
-                f.write(qrcode)
-            if sys.platform == "win32":
-                os.startfile(qrcode_file)
-            elif sys.platform == "darwin":
-                subprocess.run(['open', qrcode_file])
-            else:
-                subprocess.run(['xdg-open', qrcode_file])
-
-        try:
-            cookies = await login.login_via_qrcode(qrcode_callback)
-            logger.info(f"Cookies after login: {cookies}")
-            with open(cookie_file, 'w') as f:
-                json.dump(cookies, f)
-            if os.path.exists(qrcode_file):
-                os.remove(qrcode_file)
-        except Exception as e:
-            logger.error("生成二维码失败")
-            logger.error(traceback.format_exc())
-            return False
 
     qzone = QzoneAPI(cookies)
     if not await qzone.token_valid():
@@ -553,7 +459,6 @@ async def send_feed(message: str, image_directory: str, qq_account: str, enable_
 
 async def read_feed(qq_account: str,target_qq: str, num : int):
     cookie_file = get_cookie_file_path(qq_account)
-    qrcode_file = os.path.join(os.getcwd(),'plugins/Maizone/qrcode.png')
 
     if os.path.exists(cookie_file):
         try:
@@ -563,32 +468,6 @@ async def read_feed(qq_account: str,target_qq: str, num : int):
             cookies = None
     else:
         cookies = None
-
-    if not cookies:
-        login = QzoneLogin()
-
-        async def qrcode_callback(qrcode: bytes):
-            with open(qrcode_file, "wb") as f:
-                f.write(qrcode)
-            if sys.platform == "win32":
-                os.startfile(qrcode_file)
-            elif sys.platform == "darwin":
-                subprocess.run(['open', qrcode_file])
-            else:
-                subprocess.run(['xdg-open', qrcode_file])
-
-        try:
-            cookies = await login.login_via_qrcode(qrcode_callback)
-            logger.info(f"Cookies after login: {cookies}")
-            with open(cookie_file, 'w') as f:
-                json.dump(cookies, f)
-            if os.path.exists(qrcode_file):
-                os.remove(qrcode_file)
-        except Exception as e:
-            logger.error("生成二维码失败")
-            logger.error(traceback.format_exc())
-            return False
-
     qzone = QzoneAPI(cookies)
     if not await qzone.token_valid():
         logger.error("Cookies 过期或无效")
@@ -605,8 +484,6 @@ async def read_feed(qq_account: str,target_qq: str, num : int):
 
 async def like_feed(qq_account: str, target_qq: str,fid: str):
     cookie_file = get_cookie_file_path(qq_account)
-    qrcode_file = os.path.join(os.getcwd(),'plugins/Maizone/qrcode.png')
-
     if os.path.exists(cookie_file):
         try:
             with open(cookie_file, 'r') as f:
@@ -615,31 +492,6 @@ async def like_feed(qq_account: str, target_qq: str,fid: str):
             cookies = None
     else:
         cookies = None
-
-    if not cookies:
-        login = QzoneLogin()
-
-        async def qrcode_callback(qrcode: bytes):
-            with open(qrcode_file, "wb") as f:
-                f.write(qrcode)
-            if sys.platform == "win32":
-                os.startfile(qrcode_file)
-            elif sys.platform == "darwin":
-                subprocess.run(['open', qrcode_file])
-            else:
-                subprocess.run(['xdg-open', qrcode_file])
-
-        try:
-            cookies = await login.login_via_qrcode(qrcode_callback)
-            logger.info(f"Cookies after login: {cookies}")
-            with open(cookie_file, 'w') as f:
-                json.dump(cookies, f)
-            if os.path.exists(qrcode_file):
-                os.remove(qrcode_file)
-        except Exception as e:
-            logger.error("生成二维码失败")
-            logger.error(traceback.format_exc())
-            return False
 
     qzone = QzoneAPI(cookies)
     if not await qzone.token_valid():
@@ -655,7 +507,6 @@ async def like_feed(qq_account: str, target_qq: str,fid: str):
 
 async def comment_feed(qq_account: str, target_qq: str,fid: str,content: str):
     cookie_file = get_cookie_file_path(qq_account)
-    qrcode_file = os.path.join(os.getcwd(),'plugins/Maizone/qrcode.png')
 
     if os.path.exists(cookie_file):
         try:
@@ -665,31 +516,6 @@ async def comment_feed(qq_account: str, target_qq: str,fid: str,content: str):
             cookies = None
     else:
         cookies = None
-
-    if not cookies:
-        login = QzoneLogin()
-
-        async def qrcode_callback(qrcode: bytes):
-            with open(qrcode_file, "wb") as f:
-                f.write(qrcode)
-            if sys.platform == "win32":
-                os.startfile(qrcode_file)
-            elif sys.platform == "darwin":
-                subprocess.run(['open', qrcode_file])
-            else:
-                subprocess.run(['xdg-open', qrcode_file])
-
-        try:
-            cookies = await login.login_via_qrcode(qrcode_callback)
-            logger.info(f"Cookies after login: {cookies}")
-            with open(cookie_file, 'w') as f:
-                json.dump(cookies, f)
-            if os.path.exists(qrcode_file):
-                os.remove(qrcode_file)
-        except Exception as e:
-            logger.error("生成二维码失败")
-            logger.error(traceback.format_exc())
-            return False
 
     qzone = QzoneAPI(cookies)
     if not await qzone.token_valid():
@@ -702,6 +528,7 @@ async def comment_feed(qq_account: str, target_qq: str,fid: str,content: str):
         logger.error(traceback.format_exc())
         return False
     return True
+
 # ===== 插件Command组件 =====
 class SendFeedCommand(BaseCommand):
     """发说说Command - 响应/send_feed命令"""
@@ -714,7 +541,26 @@ class SendFeedCommand(BaseCommand):
     command_examples = ["/send_feed", "/send_feed topic"]
     intercept_message = True
 
+    def check_permission(self, qq_account: str) -> bool:
+        """检查qq号为qq_account的用户是否拥有权限"""
+        permission_list = self.get_config("send.permission")
+        permission_type = self.get_config("send.permission_type")
+        logger.info(f'{permission_type}:{str(permission_list)}')
+        if permission_type == 'whitelist':
+            return qq_account in permission_list
+        elif permission_type == 'blacklist':
+            return qq_account not in permission_list
+        else:
+            return False
+
     async def execute(self) -> Tuple[bool, str]:
+        #权限检查
+        user_id = self.message.message_info.user_info.user_id
+        if not self.check_permission(user_id):
+            logger.info(f"{user_id}无{self.command_name}权限")
+            await self.send_text(f"{user_id}权限不足，无权使用此命令")
+            return False, ""
+
         topic = self.matched_groups.get("topic")
         models = llm_api.get_available_models()
         text_model = self.get_config("models.text_model", "replyer_1")
@@ -777,7 +623,10 @@ class SendFeedAction(BaseAction):
     activation_keywords = ["说说", "QQ空间", "动态"]
     keyword_case_sensitive = False
 
-    action_parameters = {"topic": "要发送的说说主题"}
+    action_parameters = {
+        "topic": "要发送的说说主题",
+        "user_name": "要求你发说说的好友的qq名称",
+    }
     action_require = [
         "用户要求发说说时使用",
         "当有人希望你更新qq空间时使用",
@@ -785,7 +634,34 @@ class SendFeedAction(BaseAction):
     ]
     associated_types = ["text","emoji"]
 
+    def check_permission(self, qq_account: str) -> bool:
+        """检查qq号为qq_account的用户是否拥有权限"""
+        permission_list = self.get_config("send.permission")
+        permission_type = self.get_config("send.permission_type")
+        logger.info(f'{permission_type}:{str(permission_list)}')
+        if permission_type == 'whitelist':
+            return qq_account in permission_list
+        elif permission_type == 'blacklist':
+            return qq_account not in permission_list
+        else:
+            return False
+
     async def execute(self) -> Tuple[bool, str]:
+        #检查权限
+        user_name = self.action_data.get("user_name", "")
+        person_id = person_api.get_person_id_by_name(user_name)
+        user_id = await person_api.get_person_value(person_id, "user_id")
+        if not self.check_permission(user_id):  #若权限不足
+            logger.info(f"{user_id}无{self.action_name}权限")
+            success, reply_set = await generator_api.generate_reply(
+                chat_stream=self.chat_stream,
+                action_data={"extra_info_block": f'{user_name}无权命令你发送说说，请用符合你人格特点的方式拒绝请求'}
+            )
+            if success and reply_set:
+                reply_type, reply_content = reply_set[0]
+                await self.send_text(reply_content)
+            return False, ""
+
         topic = self.action_data.get("topic", "")
         models = llm_api.get_available_models()
         text_model = self.get_config("models.text_model", "replyer_1")
@@ -829,6 +705,7 @@ class SendFeedAction(BaseAction):
         # 生成回复
         success, reply_set = await generator_api.generate_reply(
             chat_stream=self.chat_stream,
+            action_data={"extra_info_block": f'你刚刚发了一条说说，内容为{story}'}
         )
 
         if success and reply_set:
@@ -852,6 +729,7 @@ class ReadFeedAction(BaseAction):
 
     action_parameters = {
         "target_name": "需要阅读动态的好友的qq名称",
+        "user_name" : "要求你阅读动态的好友的qq名称"
     }
 
     action_require = [
@@ -861,7 +739,34 @@ class ReadFeedAction(BaseAction):
     ]
     associated_types = ["text"]
 
+    def check_permission(self, qq_account: str) -> bool:
+        """检查qq号为qq_account的用户是否拥有权限"""
+        permission_list = self.get_config("read.permission")
+        permission_type = self.get_config("read.permission_type")
+        logger.info(f'{permission_type}:{str(permission_list)}')
+        if permission_type == 'whitelist':
+            return qq_account in permission_list
+        elif permission_type == 'blacklist':
+            return qq_account not in permission_list
+        else:
+            return False
+
     async def execute(self) -> Tuple[bool, str]:
+        #检查权限
+        user_name = self.action_data.get("user_name", "")
+        person_id = person_api.get_person_id_by_name(user_name)
+        user_id = await person_api.get_person_value(person_id, "user_id")
+        if not self.check_permission(user_id):  # 若权限不足
+            logger.info(f"{user_id}无{self.action_name}权限")
+            success, reply_set = await generator_api.generate_reply(
+                chat_stream=self.chat_stream,
+                action_data={"extra_info_block": f'{user_name}无权命令你阅读说说，请用符合人格的方式进行拒绝的回复'}
+            )
+            if success and reply_set:
+                reply_type, reply_content = reply_set[0]
+                await self.send_text(reply_content)
+            return False, ""
+
         target_name = self.action_data.get("target_name", "")
 
         port = self.get_config("plugin.http_port", "9999")
@@ -909,7 +814,7 @@ class ReadFeedAction(BaseAction):
             return False, '生成回复失败'
         #逐条点赞回复
         for feed in feeds_list:
-            time.sleep(3)
+            time.sleep(3 + random.random())
             content = feed["content"]
             if feed["images"]:
                 for image in feed["images"]:
@@ -917,7 +822,7 @@ class ReadFeedAction(BaseAction):
             fid = feed["tid"]
             if random.random() <= comment_possibility:
                 #评论说说
-                prompt = f"你是{bot_personality}，你的表达风格是{bot_expression}，请对你的好友{target_name}qq空间上内容为'{content}'的说说发表你的评论，确保符合人设，口语化，不要将理由写在括号中，不违反法律法规"
+                prompt = f"你是{bot_personality}，你的表达风格是{bot_expression}，请对你的好友{target_name}qq空间上内容为'{content}'的说说发表你的一条评论，确保符合人设，口语化，不要将理由写在括号中，不违反法律法规"
                 logger.info(f'正在评论{target_name}的说说：{content[:20]}...')
                 success, comment, reasoning, model_name = await llm_api.generate_with_model(
                     prompt=prompt,
@@ -948,6 +853,7 @@ class ReadFeedAction(BaseAction):
         # 生成回复
         success, reply_set = await generator_api.generate_reply(
             chat_stream=self.chat_stream,
+            action_data={"extra_info_block": f'你刚刚成功读了以下说说：{feeds_list}'}
         )
 
         if success and reply_set:
@@ -964,7 +870,7 @@ class MaizonePlugin(BasePlugin):
 
     plugin_name = "Maizone"
     plugin_description = "让麦麦实现QQ空间点赞、评论、发说说"
-    plugin_version = "0.5.0"
+    plugin_version = "0.6.0"
     plugin_author = "internetsb"
     enable_plugin = True
     config_file_name = "config.toml"
@@ -989,11 +895,17 @@ class MaizonePlugin(BasePlugin):
             }
         },
         "send": {
+            "permission": ConfigField(type=list, default=['114514','1919810',], description="权限QQ号列表（请以相同格式添加）"),
+            "permission_type": ConfigField(type=str, default='whitelist',
+                                          description="whitelist:在列表中的QQ号有权限，blacklist:在列表中的QQ号无权限"),
             "enable_image": ConfigField(type=bool, default=False, description="是否启用带图片的说说"),
             "enable_ai_image": ConfigField(type=bool, default=False, description="是否启用Ai生成带图片的说说（暂时没用）"),
             "image_directory": ConfigField(type=str, default="./plugins/Maizone/images", description="图片存储目录")
         },
         "read": {
+            "permission": ConfigField(type=list, default=['114514', '1919810', ], description="权限QQ号列表（请以相同格式添加）"),
+            "permission_type": ConfigField(type=str, default='blacklist',
+                                          description="whitelist:在列表中的QQ号有权限，blacklist:在列表中的QQ号无权限"),
             "read_number" : ConfigField(type=int,default=5,description="一次读取最新的几条说说"),
             "like_possibility" : ConfigField(type=float,default=1.0,description="麦麦读说说后点赞的概率（0到1）"),
             "comment_possibility" : ConfigField(type=float,default=1.0,description="麦麦读说说后评论的概率（0到1）"),
