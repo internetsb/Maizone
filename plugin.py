@@ -57,9 +57,12 @@ async def renew_cookies(port: str):
     parsed_cookies = parse_cookie_string(cookie_str)
     uin = extract_uin_from_cookie(cookie_str)
     file_path = get_cookie_file_path(uin)
-    with open(file_path, "w") as f:
-        json.dump(parsed_cookies, f, indent=4, ensure_ascii=False)
-    logger.info(f"[OK] cookies 已保存至: {file_path}")
+    try:
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(parsed_cookies, f, indent=4, ensure_ascii=False)
+        logger.info(f"[OK] cookies 已保存至: {file_path}")
+    except OSError as e:
+        logger.error(f"文件写入失败: {str(e)}")
 
 def generate_gtk(skey: str) -> str:
     """生成gtk"""
@@ -670,7 +673,7 @@ class SendFeedCommand(BaseCommand):
         apikey = self.get_config("models.siliconflow_apikey", "")
         if enable_ai_image and apikey:
             await generate_image_by_sf(api_key=apikey,story=story, image_dir=image_dir,batch_size=image_num)
-        elif not apikey:
+        elif enable_ai_image and not apikey:
             logger.error('请填写apikey')
         # 更新cookies
         try:
@@ -771,7 +774,7 @@ class SendFeedAction(BaseAction):
         apikey = self.get_config("models.siliconflow_apikey", "")
         if enable_ai_image and apikey:
             await generate_image_by_sf(api_key=apikey, story=story, image_dir=image_dir, batch_size=image_num)
-        elif not apikey:
+        elif enable_ai_image and not apikey:
             logger.error('请填写apikey')
 
         # 更新cookies
@@ -957,7 +960,7 @@ class MaizonePlugin(BasePlugin):
 
     plugin_name = "Maizone"
     plugin_description = "让麦麦实现QQ空间点赞、评论、发说说"
-    plugin_version = "0.7.1"
+    plugin_version = "0.7.2"
     plugin_author = "internetsb"
     enable_plugin = True
     config_file_name = "config.toml"
