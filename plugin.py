@@ -3,6 +3,7 @@ import json
 import os
 import random
 import time
+import datetime
 import traceback
 from typing import List, Tuple, Type, Any
 from pathlib import Path
@@ -95,6 +96,7 @@ class QzoneAPI:
     DOLIKE_URL = "https://user.qzone.qq.com/proxy/domain/w.qzone.qq.com/cgi-bin/likes/internal_dolike_app"
     COMMENT_URL = "https://user.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_re_feeds"
     LIST_URL = "https://user.qzone.qq.com/proxy/domain/taotao.qq.com/cgi-bin/emotion_cgi_msglist_v6"
+    ZONE_LIST_URL = ""
 
     def __init__(self, cookies_dict: dict = {}):
         self.cookies = cookies_dict
@@ -424,14 +426,25 @@ async def send_feed(message: str, image_directory: str, qq_account: str, enable_
 
     images = []
     if os.path.exists(image_directory) and enable_image:
-        image_files = sorted(
-            [os.path.join(image_directory, f) for f in os.listdir(image_directory)
-             if os.path.isfile(os.path.join(image_directory, f))]
-        )
-        for image_file in image_files:
-            with open(image_file, "rb") as img:
+        # 获取目录下所有文件
+        all_files = [f for f in os.listdir(image_directory)
+                     if os.path.isfile(os.path.join(image_directory, f))]
+
+        # 筛选未处理的图片（不以"done_"开头的文件）
+        unprocessed_files = [f for f in all_files if not f.startswith("done_")]
+        unprocessed_files_sorted = sorted(unprocessed_files)
+
+        for image_file in unprocessed_files_sorted:
+            full_path = os.path.join(image_directory, image_file)
+            with open(full_path, "rb") as img:
                 images.append(img.read())
-            os.remove(image_file)
+
+            # 生成带时间戳的前缀 (格式: done_YYYYMMDD_HHMMSS_)
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            new_filename = f"done_{timestamp}_{image_file}"
+            new_path = os.path.join(image_directory, new_filename)
+            os.rename(full_path, new_path)
+
     if not images and enable_image:
         image = await emoji_api.get_by_description(message)
         if image:
@@ -532,7 +545,7 @@ async def generate_image_by_sf(api_key : str, story : str, image_dir : str, batc
         logger.error('配置模型失败')
         return False
     success, prompt, reasoning, model_name = await llm_api.generate_with_model(
-        prompt=f"请根据以下QQ空间说说内容配图，并构建生成配图的风格和prompt。说说主人信息：{bot_personality},{str(bot_details)}。说说内容:{story}。请注意：仅回复图片的风格和prompt，不要添加问候、理由、建议或括号",
+        prompt=f"请根据以下QQ空间说说内容配图，并构建生成配图的风格和prompt。说说主人信息：{bot_personality},{str(bot_details)}。说说内容:{story}。请注意：仅回复用于生成图片的prompt，不要添加问候、理由、建议或括号",
         model_config=model_config,
         request_type="story.generate",
         temperature=0.3,
@@ -604,7 +617,7 @@ class SendFeedCommand(BaseCommand):
         """检查qq号为qq_account的用户是否拥有权限"""
         permission_list = self.get_config("send.permission")
         permission_type = self.get_config("send.permission_type")
-        logger.info(f'{permission_type}:{str(permission_list)}')
+        logger.info(f'[{self.command_name}]{permission_type}:{str(permission_list)}')
         if permission_type == 'whitelist':
             return qq_account in permission_list
         elif permission_type == 'blacklist':
@@ -648,7 +661,6 @@ class SendFeedCommand(BaseCommand):
             return False, "生成说说内容失败"
 
         logger.info(f"成功生成说说内容：'{story}'")
-
 
         port = self.get_config("plugin.http_port", "9999")
         qq_account = config_api.get_global_config("bot.qq_account", "")
@@ -704,7 +716,7 @@ class SendFeedAction(BaseAction):
         """检查qq号为qq_account的用户是否拥有权限"""
         permission_list = self.get_config("send.permission")
         permission_type = self.get_config("send.permission_type")
-        logger.info(f'{permission_type}:{str(permission_list)}')
+        logger.info(f'[{self.action_name}]{permission_type}:{str(permission_list)}')
         if permission_type == 'whitelist':
             return qq_account in permission_list
         elif permission_type == 'blacklist':
@@ -817,7 +829,7 @@ class ReadFeedAction(BaseAction):
         """检查qq号为qq_account的用户是否拥有权限"""
         permission_list = self.get_config("read.permission")
         permission_type = self.get_config("read.permission_type")
-        logger.info(f'{permission_type}:{str(permission_list)}')
+        logger.info(f'[{self.action_name}]{permission_type}:{str(permission_list)}')
         if permission_type == 'whitelist':
             return qq_account in permission_list
         elif permission_type == 'blacklist':
@@ -945,7 +957,7 @@ class MaizonePlugin(BasePlugin):
 
     plugin_name = "Maizone"
     plugin_description = "让麦麦实现QQ空间点赞、评论、发说说"
-    plugin_version = "0.7.0"
+    plugin_version = "0.7.1"
     plugin_author = "internetsb"
     enable_plugin = True
     config_file_name = "config.toml"
@@ -964,13 +976,13 @@ class MaizonePlugin(BasePlugin):
         },
         "models": {
             "text_model": ConfigField(type=str, default="replyer_1", description="生成文本的模型（从全局变量读取）"),
-            "siliconflow_apikey":ConfigField(type=str, default="", description="用于ai生图的apikey"),
+            "siliconflow_apikey":ConfigField(type=str, default="", description="用于硅基流动ai生图的apikey"),
         },
         "send": {
             "permission": ConfigField(type=list, default=['114514','1919810',], description="权限QQ号列表（请以相同格式添加）"),
             "permission_type": ConfigField(type=str, default='whitelist',
                                           description="whitelist:在列表中的QQ号有权限，blacklist:在列表中的QQ号无权限"),
-            "enable_image": ConfigField(type=bool, default=False, description="是否启用带图片的说说（无Ai生图将从已注册表情包中获取）"),
+            "enable_image": ConfigField(type=bool, default=False, description="是否启用带图片的说说（禁用Ai生图将从已注册表情包中获取）"),
             "enable_ai_image": ConfigField(type=bool, default=False, description="是否启用Ai生成带图片的说说"),
             "ai_image_number": ConfigField(type=int, default=1, description="一次生成几张图片(范围1至4)"),
             "image_directory": ConfigField(type=str, default="./plugins/Maizone/images", description="图片存储目录")
