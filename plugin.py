@@ -5,6 +5,7 @@ import random
 import time
 import traceback
 from typing import List, Tuple, Type, Any
+from pathlib import Path
 
 import httpx
 import requests
@@ -20,18 +21,14 @@ from src.plugin_system.apis import llm_api, config_api, emoji_api, person_api, g
 from src.plugin_system.base.config_types import ConfigField
 
 logger = get_logger('Maizone')
-
-
 # ===== QZone API 功能 =====
 def get_cookie_file_path(uin: str) -> str:
     """构建cookie路径"""
     return os.path.join(os.getcwd(),'plugins/Maizone/',f"cookies-{uin}.json")
 
-
 def parse_cookie_string(cookie_str: str) -> dict:
     """解析cookie字符串为字典"""
     return {pair.split("=", 1)[0]: pair.split("=", 1)[1] for pair in cookie_str.split("; ")}
-
 
 def extract_uin_from_cookie(cookie_str: str) -> str:
     """从cookie中获得uin"""
@@ -39,7 +36,6 @@ def extract_uin_from_cookie(cookie_str: str) -> str:
         if item.startswith("uin=") or item.startswith("o_uin="):
             return item.split("=")[1].lstrip("o")
     raise ValueError("无法从 Cookie 字符串中提取 uin")
-
 
 async def fetch_cookies(domain: str, port: str) -> dict:
     """获取cookie"""
@@ -51,7 +47,6 @@ async def fetch_cookies(domain: str, port: str) -> dict:
         if data.get("status") != "ok" or "cookies" not in data.get("data", {}):
             raise RuntimeError(f"获取 cookie 失败: {data}")
         return data["data"]
-
 
 async def renew_cookies(port: str):
     """更新cookie"""
@@ -71,7 +66,6 @@ def generate_gtk(skey: str) -> str:
     for i in range(len(skey)):
         hash_val += (hash_val << 5) + ord(skey[i])
     return str(hash_val & 2147483647)
-
 
 def get_picbo_and_richval(upload_result):
     """获取picbo和richval"""
@@ -409,11 +403,8 @@ class QzoneAPI:
             return feeds_list
 
         except Exception as e:
-            logger.error(str(json_data))
+            #logger.error(str(json_data))
             return [{"error" : f'{e},你没有看到任何东西'}]
-
-
-
 
 async def send_feed(message: str, image_directory: str, qq_account: str, enable_image : bool):
     cookie_file = get_cookie_file_path(qq_account)
@@ -475,7 +466,7 @@ async def read_feed(qq_account: str,target_qq: str, num : int):
 
     try:
         feeds_list = await qzone.get_list(target_qq,num)
-        print(feeds_list)
+        #print(feeds_list)
         return feeds_list
     except Exception as e:
         logger.error("获取list失败")
@@ -529,6 +520,74 @@ async def comment_feed(qq_account: str, target_qq: str,fid: str,content: str):
         return False
     return True
 
+async def generate_image_by_sf(api_key : str, story : str, image_dir : str, batch_size : int = 1) ->bool:
+    """用SiliconFlow生成图片并保存"""
+    logger.info(f"正在生成图片,保存路径{image_dir}")
+    models = llm_api.get_available_models()
+    prompt_model = "replyer_1"
+    model_config = getattr(models, prompt_model, None)
+    bot_personality = config_api.get_global_config("personality.personality_core", "一个机器人")
+    bot_details = config_api.get_global_config("identity.identity_detail", "未知")
+    if not model_config:
+        logger.error('配置模型失败')
+        return False
+    success, prompt, reasoning, model_name = await llm_api.generate_with_model(
+        prompt=f"请根据以下QQ空间说说内容配图，并构建生成配图的风格和prompt。说说主人信息：{bot_personality},{str(bot_details)}。说说内容:{story}。请注意：仅回复图片的风格和prompt，不要添加问候、理由、建议或括号",
+        model_config=model_config,
+        request_type="story.generate",
+        temperature=0.3,
+        max_tokens=1000
+    )
+    if success:
+        logger.info(f'即将生成说说配图：{prompt}')
+    else:
+        logger.error('生成说说配图prompt失败')
+    try:
+        # SiliconFlow API
+        sf_url = "https://api.siliconflow.cn/v1/images/generations"
+        sf_headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        sf_data = {
+            "model": "Kwai-Kolors/Kolors",
+            "prompt": prompt,
+            "negative_prompt": "lowres, bad anatomy, bad hands, text, error, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry",
+            "image_size": "1024x1024",
+            "batch_size": batch_size,
+            "seed": random.randint(1, 9999999999),
+            "num_inference_steps": 20,
+            "guidance_scale": 7.5,
+        }
+        res = requests.request(method="post", url=sf_url, headers=sf_headers, json=sf_data)
+        if res.status_code != 200:
+            logger.error(f'生成图片出错，错误码[{res.status_code}]')
+            #print(res.text)
+            return False
+        json_data = res.json()
+        image_urls = [img["url"] for img in json_data["images"]]
+        # 确保目录存在
+        Path(image_dir).mkdir(parents=True, exist_ok=True)
+        for i, img_url in enumerate(image_urls):
+            try:
+                # 下载图片
+                img_response = requests.get(img_url)
+                filename = f"sf_{i}.png"
+                save_path = Path(image_dir) / filename
+                with open(save_path, "wb") as f:
+                    f.write(img_response.content)
+                logger.info(f"图片已保存至: {save_path}")
+
+            except Exception as e:
+                logger.error(f"下载图片失败: {str(e)}")
+                return False
+        return True
+
+    except Exception as e:
+        logger.error(f"生成图片失败: {e}")
+        return False
+
+
 # ===== 插件Command组件 =====
 class SendFeedCommand(BaseCommand):
     """发说说Command - 响应/send_feed命令"""
@@ -551,6 +610,7 @@ class SendFeedCommand(BaseCommand):
         elif permission_type == 'blacklist':
             return qq_account not in permission_list
         else:
+            logger.error('permission_type错误，可能为拼写错误')
             return False
 
     async def execute(self) -> Tuple[bool, str]:
@@ -593,7 +653,13 @@ class SendFeedCommand(BaseCommand):
         port = self.get_config("plugin.http_port", "9999")
         qq_account = config_api.get_global_config("bot.qq_account", "")
         image_dir = self.get_config("send.image_directory", "./images")
-
+        image_num = self.get_config("send.ai_image_number", 1)
+        enable_ai_image = self.get_config("send.enable_ai_image", False)
+        apikey = self.get_config("models.siliconflow_apikey", "")
+        if enable_ai_image and apikey:
+            await generate_image_by_sf(api_key=apikey,story=story, image_dir=image_dir,batch_size=image_num)
+        elif not apikey:
+            logger.error('请填写apikey')
         # 更新cookies
         try:
             await renew_cookies(port)
@@ -606,7 +672,7 @@ class SendFeedCommand(BaseCommand):
         success = await send_feed(story, image_dir, qq_account, enable_image)
         if not success:
             return False, "发送说说失败"
-        await self.send_text(f"已发送说说{story}")
+        await self.send_text(f"已发送说说：\n{story}")
         return True, 'success'
 
 
@@ -644,6 +710,7 @@ class SendFeedAction(BaseAction):
         elif permission_type == 'blacklist':
             return qq_account not in permission_list
         else:
+            logger.error('permission_type错误，可能为拼写错误')
             return False
 
     async def execute(self) -> Tuple[bool, str]:
@@ -686,7 +753,14 @@ class SendFeedAction(BaseAction):
         logger.info(f"生成说说内容：'{story}'，即将发送")
         port = self.get_config("plugin.http_port", "9999")
         qq_account = config_api.get_global_config("bot.qq_account", "")
-        image_dir = self.get_config("send.image_directory", "./plugins/Maizone/images")
+        image_dir = self.get_config("send.image_directory", "./images")
+        image_num = self.get_config("send.ai_image_number", 1)
+        enable_ai_image = self.get_config("send.enable_ai_image", False)
+        apikey = self.get_config("models.siliconflow_apikey", "")
+        if enable_ai_image and apikey:
+            await generate_image_by_sf(api_key=apikey, story=story, image_dir=image_dir, batch_size=image_num)
+        elif not apikey:
+            logger.error('请填写apikey')
 
         # 更新cookies
         try:
@@ -705,7 +779,7 @@ class SendFeedAction(BaseAction):
         # 生成回复
         success, reply_set = await generator_api.generate_reply(
             chat_stream=self.chat_stream,
-            action_data={"extra_info_block": f'你刚刚发了一条说说，内容为{story}'}
+            action_data={"extra_info_block": f'你刚刚发了一条说说，内容为{story}，请告知你已经发送了说说'}
         )
 
         if success and reply_set:
@@ -749,6 +823,7 @@ class ReadFeedAction(BaseAction):
         elif permission_type == 'blacklist':
             return qq_account not in permission_list
         else:
+            logger.error('permission_type错误，可能为拼写错误')
             return False
 
     async def execute(self) -> Tuple[bool, str]:
@@ -853,7 +928,7 @@ class ReadFeedAction(BaseAction):
         # 生成回复
         success, reply_set = await generator_api.generate_reply(
             chat_stream=self.chat_stream,
-            action_data={"extra_info_block": f'你刚刚成功读了以下说说：{feeds_list}'}
+            action_data={"extra_info_block": f'你刚刚成功读了以下说说：{feeds_list}，请告知你已经读了说说，生成回复'}
         )
 
         if success and reply_set:
@@ -870,7 +945,7 @@ class MaizonePlugin(BasePlugin):
 
     plugin_name = "Maizone"
     plugin_description = "让麦麦实现QQ空间点赞、评论、发说说"
-    plugin_version = "0.6.0"
+    plugin_version = "0.7.0"
     plugin_author = "internetsb"
     enable_plugin = True
     config_file_name = "config.toml"
@@ -889,17 +964,15 @@ class MaizonePlugin(BasePlugin):
         },
         "models": {
             "text_model": ConfigField(type=str, default="replyer_1", description="生成文本的模型（从全局变量读取）"),
-            "ai_image_model": {
-                "url": ConfigField(type=str, default="", description="AI图片生成URL"),
-                "api_key": ConfigField(type=str, default="", description="AI图片生成API密钥"),
-            }
+            "siliconflow_apikey":ConfigField(type=str, default="", description="用于ai生图的apikey"),
         },
         "send": {
             "permission": ConfigField(type=list, default=['114514','1919810',], description="权限QQ号列表（请以相同格式添加）"),
             "permission_type": ConfigField(type=str, default='whitelist',
                                           description="whitelist:在列表中的QQ号有权限，blacklist:在列表中的QQ号无权限"),
-            "enable_image": ConfigField(type=bool, default=False, description="是否启用带图片的说说"),
-            "enable_ai_image": ConfigField(type=bool, default=False, description="是否启用Ai生成带图片的说说（暂时没用）"),
+            "enable_image": ConfigField(type=bool, default=False, description="是否启用带图片的说说（无Ai生图将从已注册表情包中获取）"),
+            "enable_ai_image": ConfigField(type=bool, default=False, description="是否启用Ai生成带图片的说说"),
+            "ai_image_number": ConfigField(type=int, default=1, description="一次生成几张图片(范围1至4)"),
             "image_directory": ConfigField(type=str, default="./plugins/Maizone/images", description="图片存储目录")
         },
         "read": {
