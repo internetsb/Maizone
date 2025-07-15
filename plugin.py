@@ -10,6 +10,9 @@ from pathlib import Path
 
 import httpx
 import requests
+import asyncio
+import bs4
+import json5
 
 from src.chat.utils.utils_image import get_image_manager
 from src.common.logger import get_logger
@@ -99,7 +102,7 @@ class QzoneAPI:
     DOLIKE_URL = "https://user.qzone.qq.com/proxy/domain/w.qzone.qq.com/cgi-bin/likes/internal_dolike_app"
     COMMENT_URL = "https://user.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_re_feeds"
     LIST_URL = "https://user.qzone.qq.com/proxy/domain/taotao.qq.com/cgi-bin/emotion_cgi_msglist_v6"
-    ZONE_LIST_URL = ""
+    ZONE_LIST_URL = "https://user.qzone.qq.com/proxy/domain/ic2.qzone.qq.com/cgi-bin/feeds/feeds3_html_more"
 
     def __init__(self, cookies_dict: dict = {}):
         self.cookies = cookies_dict
@@ -355,7 +358,7 @@ class QzoneAPI:
 
         data = res.text
         if data.startswith('_preloadCallback(') and data.endswith(');'):
-            # 去掉res首尾的 _preloadCallback( 和 );
+            # 1. 去掉res首尾的 _preloadCallback( 和 );
             json_str = data[len('_preloadCallback('):-2]
         else:
             json_str = data
@@ -410,6 +413,135 @@ class QzoneAPI:
         except Exception as e:
             #logger.error(str(json_data))
             return [{"error" : f'{e},你没有看到任何东西'}]
+
+    async def monitor_get_list(self, num: int) -> list[dict[str, Any]]:
+        """获得qq号为target_qq的好友说说列表"""
+        res = await self.do(
+            method="GET",
+            url=self.ZONE_LIST_URL,
+            params={
+                "uin": self.uin,              # QQ号
+                "scope": 0,              # 访问范围
+                "view": 1,              # 查看权限
+                "filter": "all",        # 全部动态
+                "flag": 1,              # 标记
+                "applist": "all",       # 所有应用
+                "pagenum": 1,        # 页码
+                "count": num,         # 每页条数
+                "aisortEndTime": 0,     # AI排序结束时间
+                "aisortOffset": 0,      # AI排序偏移
+                "aisortBeginTime": 0,   # AI排序开始时间
+                "begintime": 0,         # 开始时间
+                "format": "json",       # 返回格式
+                "g_tk": self.gtk2,          # 令牌
+                "useutf8": 1,          # 使用UTF8编码
+                "outputhtmlfeed": 1    # 输出HTML格式
+            },
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                "Referer": f"https://user.qzone.qq.com/{self.uin}",
+                "Host": "user.qzone.qq.com",
+                "Connection": "keep-alive"
+            },
+        )
+
+        if res.status_code != 200:
+            raise Exception("访问失败: " + str(res.status_code))
+
+        data = res.text
+        if data.startswith('_Callback(') and data.endswith(');'):
+            # 1. 去掉res首尾的 _Callback( 和 );
+            data = data[len('_Callback('):-2]
+        data = data.replace('undefined', 'null')
+        try:
+            # 2. 解析JSON数据
+            data = json5.loads(data)['data']['data']
+        except Exception as e:
+            logger.error(f"解析错误: {e}")
+            # 3. 提取说说内容
+        try:
+            feeds_list = []
+            current_uin = str(self.uin)  # 确保uin是字符串类型
+
+            for feed in data:
+                if not feed:  # 跳过None值
+                    continue
+                # 过滤广告类内容
+                appid = str(feed.get('appid', ''))
+                if appid != '311':
+                    continue
+                target_qq = feed.get('uin', '')
+                tid = feed.get('key', '')
+                if not target_qq or not tid:
+                    logger.error(f"无效的说说数据: target_qq={target_qq}, tid={tid}")
+                    continue
+                # 过滤自己的说说
+                if target_qq == current_uin:
+                    continue
+
+                html_content = feed.get('html', '')
+                if not html_content:
+                    logger.error(f"说说内容为空: UIN={target_qq}, TID={tid}")
+                    continue
+
+                soup = bs4.BeautifulSoup(html_content, 'html.parser')
+                is_read = False
+                # 根据点赞状态判断是否已读
+                like_btn = soup.find('a', class_='qz_like_btn_v3')
+                if like_btn:
+                    data_islike = like_btn.get('data-islike')
+                else:
+                    like_btn = soup.find('a', attrs={'data-islike': True})
+                    if like_btn:
+                        data_islike = like_btn.get('data-islike')
+                    else:
+                        data_islike = None
+                        logger.error("未找到包含data-islike属性的元素")
+                if data_islike == '1':
+                    is_read = True
+
+                # 只处理未读说说
+                if is_read:
+                    continue
+
+                # 提取文字内容
+                text_div = soup.find('div', class_='f-info')
+                text = text_div.get_text(strip=True) if text_div else ""
+
+                # 提取图片URL
+                image_urls = []
+                # 查找所有图片容器
+                img_box = soup.find('div', class_='img-box')
+                if img_box:
+                    for img in img_box.find_all('img'):
+                        src = img.get('src')
+                        if src and not src.startswith('http://qzonestyle.gtimg.cn'):  # 过滤表情图标
+                            image_urls.append(src)
+                # 去重URL
+                unique_urls = list(set(image_urls))
+                # 获取图片描述
+                images = []
+                for url in unique_urls:
+                    try:
+                        image_base64 = await self.get_image_base64_by_url(url)
+                        image_manager = get_image_manager()
+                        description = await image_manager.get_image_description(image_base64)
+                        images.append(description)
+                    except Exception as e:
+                        logger.info(f'图片识别失败: {url} - {str(e)}')
+
+                feeds_list.append({
+                    'target_qq': target_qq,
+                    'tid': tid,
+                    'content': text,
+                    'images': images
+                })
+
+            logger.info(f"成功解析 {len(feeds_list)} 条未读说说")
+            return feeds_list
+        except Exception as e:
+            logger.error(f'解析说说错误：{str(e)}', exc_info=True)
+            return []
 
 async def send_feed(message: str, image_directory: str, qq_account: str, enable_image : bool):
     cookie_file = get_cookie_file_path(qq_account)
@@ -489,6 +621,30 @@ async def read_feed(qq_account: str,target_qq: str, num : int):
         logger.error(traceback.format_exc())
         return []
 
+async def monitor_read_feed(qq_account: str, num : int):
+    cookie_file = get_cookie_file_path(qq_account)
+
+    if os.path.exists(cookie_file):
+        try:
+            with open(cookie_file, 'r') as f:
+                cookies = json.load(f)
+        except:
+            cookies = None
+    else:
+        cookies = None
+    qzone = QzoneAPI(cookies)
+    if not await qzone.token_valid():
+        logger.error("Cookies 过期或无效")
+        return False
+
+    try:
+        feeds_list = await qzone.monitor_get_list(num)
+        #print(feeds_list)
+        return feeds_list
+    except Exception as e:
+        logger.error("获取list失败")
+        logger.error(traceback.format_exc())
+        return []
 async def like_feed(qq_account: str, target_qq: str,fid: str):
     cookie_file = get_cookie_file_path(qq_account)
     if os.path.exists(cookie_file):
@@ -701,7 +857,7 @@ class SendFeedAction(BaseAction):
     focus_activation_type = ActionActivationType.KEYWORD
     normal_activation_type = ActionActivationType.KEYWORD
 
-    activation_keywords = ["说说", "QQ空间", "动态"]
+    activation_keywords = ["说说", "空间", "动态"]
     keyword_case_sensitive = False
 
     action_parameters = {
@@ -791,10 +947,11 @@ class SendFeedAction(BaseAction):
         if not success:
             return False, "发送说说失败"
         logger.info(f"成功发送说说: {story}")
+        await self.send_text('我发了一条说说啦~')
         # 生成回复
         success, reply_set = await generator_api.generate_reply(
             chat_stream=self.chat_stream,
-            action_data={"extra_info_block": f'你刚刚发了一条说说，内容为{story}，请告知你已经发送了说说'}
+            action_data={"extra_info_block": f'你刚刚发了一条说说，内容为{story}'}
         )
 
         if success and reply_set:
@@ -813,7 +970,7 @@ class ReadFeedAction(BaseAction):
     focus_activation_type = ActionActivationType.KEYWORD
     normal_activation_type = ActionActivationType.KEYWORD
 
-    activation_keywords = ["说说", "QQ空间", "动态"]
+    activation_keywords = ["说说", "空间", "动态"]
     keyword_case_sensitive = False
 
     action_parameters = {
@@ -953,6 +1110,135 @@ class ReadFeedAction(BaseAction):
 
         return False, '生成回复失败'
 
+
+# ===== 定时任务功能 =====
+class FeedMonitor:
+    """定时监控好友说说的类"""
+
+    def __init__(self, plugin):
+        self.plugin = plugin
+        self.is_running = False
+        self.task = None
+        self.last_check_time = 0
+
+    async def start(self):
+        """启动监控任务"""
+        if self.is_running:
+            return
+        self.is_running = True
+        self.task = asyncio.create_task(self._monitor_loop())
+        logger.info("说说监控任务已启动")
+
+    async def stop(self):
+        """停止监控任务"""
+        if not self.is_running:
+            return
+        self.is_running = False
+        if self.task:
+            self.task.cancel()
+            try:
+                await self.task
+            except asyncio.CancelledError:
+                pass
+        logger.info("说说监控任务已停止")
+    async def _monitor_loop(self):
+        """监控循环"""
+        while self.is_running:
+            try:
+                # 获取配置
+                interval = self.plugin.get_config("monitor.interval_minutes", 5)
+                read_num = 3
+
+                # 等待指定时间
+                await asyncio.sleep(interval * 60)
+
+                # 执行监控任务
+                await self.check_feeds(read_num)
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"监控任务出错: {str(e)}")
+                traceback.print_exc()
+                # 出错后等待一段时间再重试
+                await asyncio.sleep(300)
+
+    async def check_feeds(self, read_num : int):
+        """检查好友说说说说"""
+
+        qq_account = config_api.get_global_config("bot.qq_account", "")
+        port = self.plugin.get_config("plugin.http_port", "9999")
+        #模型配置
+        models = llm_api.get_available_models()
+        text_model = self.plugin.get_config("models.text_model", "replyer_1")
+        model_config = getattr(models, text_model, None)
+        if not model_config:
+            return False, "未配置LLM模型"
+
+        bot_personality = config_api.get_global_config("personality.personality_core", "一个机器人")
+        bot_expression = config_api.get_global_config("expression.expression_style", "内容积极向上")
+
+
+        # 更新cookies
+        try:
+            await renew_cookies(port)
+        except Exception as e:
+            logger.error(f"更新cookies失败: {str(e)}")
+            return
+
+        try:
+            logger.info(f"监控任务: 正在获取说说列表")
+            feeds_list = await monitor_read_feed(qq_account,read_num)
+        except Exception as e:
+            logger.error(f"获取说说列表失败: {str(e)}")
+            return False, "获取说说列表失败"
+            # 逐条点赞回复
+        try:
+            if len(feeds_list) == 0:
+                logger.info('未读取到新说说')
+                return True, "success"
+            for feed in feeds_list:
+                time.sleep(3 + random.random())
+                content = feed["content"]
+                if feed["images"]:
+                    for image in feed["images"]:
+                        content = content + image
+                fid = feed["tid"]
+                target_qq = feed["target_qq"]
+                # 评论说说
+                prompt = f"你是{bot_personality}，你的表达风格是{bot_expression}，请对你的好友qq空间上内容为'{content}'的说说发表你的一条评论，确保符合人设，口语化，不要将理由写在括号中，不违反法律法规"
+                logger.info(f'正在评论{target_qq}的说说：{content[:20]}...')
+                success, comment, reasoning, model_name = await llm_api.generate_with_model(
+                    prompt=prompt,
+                    model_config=model_config,
+                    request_type="story.generate",
+                    temperature=0.3,
+                    max_tokens=1000
+                )
+
+                if not success:
+                    return False, "生成评论内容失败"
+
+                logger.info(f"成功生成评论内容：'{comment}'，即将发送")
+
+                success = await comment_feed(qq_account, target_qq, fid, comment)
+                if not success:
+                    logger.error(f"评论说说{content}失败")
+                    return False, "评论说说失败"
+                logger.info(f"发送评论'{comment}'成功")
+                # 点赞说说
+                success = await like_feed(qq_account, target_qq, fid)
+                if not success:
+                    logger.error(f"点赞说说{content}失败")
+                    return False, "点赞说说失败"
+                logger.info(f'点赞说说{content[:10]}..成功')
+                return True, 'success'
+        except Exception as e:
+            logger.error(f"点赞评论失败: {str(e)}")
+            return False, "点赞评论失败"
+
+
+
 # ===== 插件注册 =====
 @register_plugin
 class MaizonePlugin(BasePlugin):
@@ -960,9 +1246,9 @@ class MaizonePlugin(BasePlugin):
 
     plugin_name = "Maizone"
     plugin_description = "让麦麦实现QQ空间点赞、评论、发说说"
-    plugin_version = "0.7.2"
+    plugin_version = "1.0.0"
     plugin_author = "internetsb"
-    enable_plugin = True
+    enable_plugin = False
     config_file_name = "config.toml"
 
     config_section_descriptions = {
@@ -974,6 +1260,7 @@ class MaizonePlugin(BasePlugin):
 
     config_schema = {
         "plugin": {
+            "enable" : ConfigField(type=bool, default=True, description="是否启用插件"),
             "http_port": ConfigField(type=str, default='9999', description="Napcat设定http服务器端口号"),
             "cookie_directory": ConfigField(type=str, default='./plugins/Maizone', description="生成cookie的目录"),
         },
@@ -998,7 +1285,32 @@ class MaizonePlugin(BasePlugin):
             "like_possibility" : ConfigField(type=float,default=1.0,description="麦麦读说说后点赞的概率（0到1）"),
             "comment_possibility" : ConfigField(type=float,default=1.0,description="麦麦读说说后评论的概率（0到1）"),
         },
+        "monitor": {
+            "enable_auto_monitor": ConfigField(type=bool, default=False, description="是否启用刷空间（自动阅读所有好友说说）"),
+            "interval_minutes": ConfigField(type=int, default=5, description="阅读间隔(分钟)"),
+        },
     }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.monitor = None
+
+        # 根据配置启用插件
+        if self.get_config("plugin.enable", True):
+            self.enable_plugin = True
+
+            # 根据配置初始化监控
+            if self.get_config("monitor.enable_auto_monitor", False):
+                self.monitor = FeedMonitor(self)
+                # 创建异步任务启动监控
+                asyncio.create_task(self._start_monitor_after_delay())
+
+    async def _start_monitor_after_delay(self):
+        """延迟启动监控任务"""
+        # 等待一段时间让插件完全初始化
+        await asyncio.sleep(10)
+        if self.monitor:
+            await self.monitor.start()
 
     def get_plugin_components(self) -> List[Tuple[ComponentInfo, Type]]:
         return [
