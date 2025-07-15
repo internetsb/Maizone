@@ -1,2 +1,5 @@
-httpx>=0.25.0
-requests>=2.32.0
+httpx
+requests
+bs4
+json5
+asyncio
