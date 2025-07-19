@@ -391,7 +391,7 @@ class QzoneAPI:
                     # 存储结果
                     tid = msg.get("tid", "")
                     content = msg.get("content", "")
-                    logger.info(f"正在阅读说说内容: {content}")
+                    logger.info(f"正在阅读说说内容: {content[:20]}")
                     # 提取图片信息
                     images = []
                     if 'pic' in msg:
@@ -403,9 +403,31 @@ class QzoneAPI:
                                 image_manager = get_image_manager()
                                 image_description = await image_manager.get_image_description(image_base64)
                                 images.append(image_description)
+                    # 读取视频临时手段
+                    if 'video' in msg:
+                        for video in msg['video']:
+                            video_image_url = video.get('url1') or video.get('pic_url')
+                            if video_image_url:
+                                image_base64 = await self.get_image_base64_by_url(video_image_url)
+                                image_manager = get_image_manager()
+                                image_description = await image_manager.get_image_description(image_base64)
+                                images.append(image_description)
+                    # 提取视频信息(.m3u8)
+                    videos = []
+                    if 'video' in msg:
+                        for video in msg['video']:
+                            url = video.get('url3')
+                            videos.append(url)
+                    # 提取转发信息
+                    rt_con = ""
+                    if "rt_con" in msg:
+                        rt_con = msg.get("rt_con").get("content")
+                    #存储信息
                     feeds_list.append({"tid": tid,
                                        "content": content,
-                                       "images": images})
+                                       "images": images,
+                                       "videos": videos,
+                                       "rt_con": rt_con})
             if len(feeds_list) == 0:
                 return [{"error" : '你已经看过所有说说了，没有必要再看一遍'}]
             return feeds_list
@@ -479,6 +501,8 @@ class QzoneAPI:
                 if target_qq == current_uin:
                     continue
 
+                #print(feed)
+
                 html_content = feed.get('html', '')
                 if not html_content:
                     logger.error(f"说说内容为空: UIN={target_qq}, TID={tid}")
@@ -507,7 +531,15 @@ class QzoneAPI:
                 # 提取文字内容
                 text_div = soup.find('div', class_='f-info')
                 text = text_div.get_text(strip=True) if text_div else ""
-
+                # 提取转发内容
+                rt_con = ""
+                txt_box = soup.select_one('div.txt-box')
+                if txt_box:
+                    # 获取除昵称外的纯文本内容
+                    rt_con = txt_box.get_text(strip=True)
+                    # 分割掉昵称部分（从第一个冒号开始取内容）
+                    if '：' in rt_con:
+                        rt_con = rt_con.split('：', 1)[1].strip()
                 # 提取图片URL
                 image_urls = []
                 # 查找所有图片容器
@@ -517,6 +549,10 @@ class QzoneAPI:
                         src = img.get('src')
                         if src and not src.startswith('http://qzonestyle.gtimg.cn'):  # 过滤表情图标
                             image_urls.append(src)
+                # 临时视频处理办法（视频缩略图）
+                img_tag = soup.select_one('div.video-img img')
+                if img_tag and 'src' in img_tag.attrs:
+                    image_urls.append(img_tag['src'])
                 # 去重URL
                 unique_urls = list(set(image_urls))
                 # 获取图片描述
@@ -529,12 +565,19 @@ class QzoneAPI:
                         images.append(description)
                     except Exception as e:
                         logger.info(f'图片识别失败: {url} - {str(e)}')
+                #获取视频
+                videos = []
+                video_div = soup.select_one('div.img-box.f-video-wrap.play')
+                if video_div and 'url3' in video_div.attrs:
+                    videos.append(video_div['url3'])
 
                 feeds_list.append({
                     'target_qq': target_qq,
                     'tid': tid,
                     'content': text,
-                    'images': images
+                    'images': images,
+                    'videos': videos,
+                    'rt_con': rt_con,
                 })
 
             logger.info(f"成功解析 {len(feeds_list)} 条未读说说")
@@ -639,7 +682,7 @@ async def monitor_read_feed(qq_account: str, num : int):
 
     try:
         feeds_list = await qzone.monitor_get_list(num)
-        #print(feeds_list)
+        print(feeds_list)
         return feeds_list
     except Exception as e:
         logger.error("获取list失败")
@@ -1067,9 +1110,21 @@ class ReadFeedAction(BaseAction):
                 for image in feed["images"]:
                     content = content + image
             fid = feed["tid"]
+            rt_con = feed["rt_con"]
             if random.random() <= comment_possibility:
                 #评论说说
-                prompt = f"你是{bot_personality}，你的表达风格是{bot_expression}，请对你的好友{target_name}qq空间上内容为'{content}'的说说发表你的一条评论，确保符合人设，口语化，不要将理由写在括号中，不违反法律法规"
+                if not rt_con:
+                    prompt = f"""
+                    你是{bot_personality}，你的表达风格是{bot_expression}，
+                    请对你的好友{target_name}qq空间上内容为'{content}'，的说说发表你的一条评论，
+                    确保符合人设，口语化，不要将理由写在括号中，不违反法律法规
+                    """
+                else:
+                    prompt = f"""
+                    你是{bot_personality}，你的表达风格是{bot_expression}，
+                    你的好友{target_name}在qq空间上转发了一条内容为'{rt_con}'的说说，你的好友的评论为'{content}'
+                    请对好友的转发发表你的一条评论，确保符合人设，口语化，不要将理由写在括号中，不违反法律法规
+                    """
                 logger.info(f'正在评论{target_name}的说说：{content[:20]}...')
                 success, comment, reasoning, model_name = await llm_api.generate_with_model(
                     prompt=prompt,
@@ -1086,16 +1141,16 @@ class ReadFeedAction(BaseAction):
 
                 success = await comment_feed(qq_account,target_qq,fid,comment)
                 if not success:
-                    logger.error(f"评论说说{content}失败")
+                    logger.error(f"评论说说'{content}'失败")
                     return False, "评论说说失败"
                 logger.info(f"发送评论'{comment}'成功")
             # 点赞说说
             if random.random() <= like_possibility:
                 success = await like_feed(qq_account,target_qq,fid)
                 if not success:
-                    logger.error(f"点赞说说{content}失败")
+                    logger.error(f"点赞说说'{content}'失败")
                     return False, "点赞说说失败"
-                logger.info(f'点赞说说{content[:10]}..成功')
+                logger.info(f"点赞说说'{content[:10]}..'成功")
 
         # 生成回复
         success, reply_set = await generator_api.generate_reply(
@@ -1164,7 +1219,7 @@ class FeedMonitor:
                 await asyncio.sleep(300)
 
     async def check_feeds(self, read_num : int):
-        """检查好友说说说说"""
+        """检查好友说说"""
 
         qq_account = config_api.get_global_config("bot.qq_account", "")
         port = self.plugin.get_config("plugin.http_port", "9999")
@@ -1205,8 +1260,20 @@ class FeedMonitor:
                         content = content + image
                 fid = feed["tid"]
                 target_qq = feed["target_qq"]
+                rt_con = feed["rt_con"]
                 # 评论说说
-                prompt = f"你是{bot_personality}，你的表达风格是{bot_expression}，请对你的好友qq空间上内容为'{content}'的说说发表你的一条评论，确保符合人设，口语化，不要将理由写在括号中，不违反法律法规"
+                if not rt_con:
+                    prompt = f"""
+                    你是{bot_personality}，你的表达风格是{bot_expression}，
+                    请对你的好友{target_qq}qq空间上内容为'{content}'，的说说发表你的一条评论，
+                    确保符合人设，口语化，不要将理由写在括号中，不违反法律法规
+                    """
+                else:
+                    prompt = f"""
+                    你是{bot_personality}，你的表达风格是{bot_expression}，
+                    你的好友{target_qq}在qq空间上转发了一条内容为'{rt_con}'的说说，你的好友的评论为'{content}'
+                    请对好友的转发发表你的一条评论，确保符合人设，口语化，不要将理由写在括号中，不违反法律法规
+                    """
                 logger.info(f'正在评论{target_qq}的说说：{content[:20]}...')
                 success, comment, reasoning, model_name = await llm_api.generate_with_model(
                     prompt=prompt,
@@ -1246,7 +1313,7 @@ class MaizonePlugin(BasePlugin):
 
     plugin_name = "Maizone"
     plugin_description = "让麦麦实现QQ空间点赞、评论、发说说"
-    plugin_version = "1.0.0"
+    plugin_version = "1.0.2"
     plugin_author = "internetsb"
     enable_plugin = False
     config_file_name = "config.toml"
