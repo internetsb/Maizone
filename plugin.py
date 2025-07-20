@@ -25,14 +25,18 @@ from src.plugin_system.apis import llm_api, config_api, emoji_api, person_api, g
 from src.plugin_system.base.config_types import ConfigField
 
 logger = get_logger('Maizone')
+
+
 # ===== QZone API 功能 =====
 def get_cookie_file_path(uin: str) -> str:
     """构建cookie路径"""
-    return os.path.join(os.getcwd(),'plugins/Maizone/',f"cookies-{uin}.json")
+    return os.path.join(os.getcwd(), 'plugins/Maizone/', f"cookies-{uin}.json")
+
 
 def parse_cookie_string(cookie_str: str) -> dict:
     """解析cookie字符串为字典"""
     return {pair.split("=", 1)[0]: pair.split("=", 1)[1] for pair in cookie_str.split("; ")}
+
 
 def extract_uin_from_cookie(cookie_str: str) -> str:
     """从cookie中获得uin"""
@@ -40,6 +44,7 @@ def extract_uin_from_cookie(cookie_str: str) -> str:
         if item.startswith("uin=") or item.startswith("o_uin="):
             return item.split("=")[1].lstrip("o")
     raise ValueError("无法从 Cookie 字符串中提取 uin")
+
 
 async def fetch_cookies(domain: str, port: str) -> dict:
     """获取cookie"""
@@ -51,6 +56,7 @@ async def fetch_cookies(domain: str, port: str) -> dict:
         if data.get("status") != "ok" or "cookies" not in data.get("data", {}):
             raise RuntimeError(f"获取 cookie 失败: {data}")
         return data["data"]
+
 
 async def renew_cookies(port: str):
     """更新cookie"""
@@ -67,12 +73,14 @@ async def renew_cookies(port: str):
     except OSError as e:
         logger.error(f"文件写入失败: {str(e)}")
 
+
 def generate_gtk(skey: str) -> str:
     """生成gtk"""
     hash_val = 5381
     for i in range(len(skey)):
         hash_val += (hash_val << 5) + ord(skey[i])
     return str(hash_val & 2147483647)
+
 
 def get_picbo_and_richval(upload_result):
     """获取picbo和richval"""
@@ -94,6 +102,7 @@ def get_picbo_and_richval(upload_result):
                                                  json_data['data']['height'], json_data['data']['width'])
 
     return picbo, richval
+
 
 class QzoneAPI:
     #QQ空间cgi常量
@@ -260,7 +269,7 @@ class QzoneAPI:
     async def like(self, fid: str, target_qq: str) -> bool:
         """点赞指定说说"""
         uin = self.uin
-        post_data ={
+        post_data = {
             'qzreferrer': f'https://user.qzone.qq.com/{uin}',  # 来源
             'opuin': uin,  # 操作者QQ
             'unikey': f'http://user.qzone.qq.com/{target_qq}/mood/{fid}',  # 动态唯一标识
@@ -279,7 +288,7 @@ class QzoneAPI:
             url=self.DOLIKE_URL,
             params={
                 'g_tk': self.gtk2,
-            } ,
+            },
             data=post_data,
             headers={
                 'referer': 'https://user.qzone.qq.com/' + str(self.uin),
@@ -294,8 +303,8 @@ class QzoneAPI:
     async def comment(self, fid: str, target_qq: str, content: str) -> bool:
         """评论指定说说"""
         uin = self.uin
-        post_data ={
-            "topicId" : f'{target_qq}_{fid}__1', #说说ID
+        post_data = {
+            "topicId": f'{target_qq}_{fid}__1',  #说说ID
             "uin": uin,  # botQQ
             "hostUin": target_qq,  # 目标QQ
             "feedsType": 100,  # 说说类型
@@ -313,7 +322,7 @@ class QzoneAPI:
             url=self.COMMENT_URL,
             params={
                 "g_tk": self.gtk2,
-            } ,
+            },
             data=post_data,
             headers={
                 'referer': 'https://user.qzone.qq.com/' + str(self.uin),
@@ -325,7 +334,7 @@ class QzoneAPI:
         else:
             raise Exception("评论失败: " + res.text)
 
-    async def get_list(self,target_qq : str,num : int) -> list[dict[str, Any]]:
+    async def get_list(self, target_qq: str, num: int) -> list[dict[str, Any]]:
         """获得qq号为target_qq的好友说说列表"""
         logger.info(f'target_qq: {target_qq}')
         res = await self.do(
@@ -342,9 +351,9 @@ class QzoneAPI:
                 "callback": "_preloadCallback",
                 "code_version": 1,
                 "format": "jsonp",
-                "need_comment" : 1,
+                "need_comment": 1,
                 "need_private_comment": 1
-            } ,
+            },
             headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
                 "Referer": f"https://user.qzone.qq.com/{target_qq}",
@@ -371,7 +380,7 @@ class QzoneAPI:
             #print(json_data)
 
             if json_data.get('code') != 0:
-                return [{"error" : json_data.get('message')}]
+                return [{"error": json_data.get('message')}]
             # 3. 提取说说内容
             feeds_list = []
             for msg in json_data.get("msglist", []):
@@ -389,6 +398,12 @@ class QzoneAPI:
 
                 if not is_comment:
                     # 存储结果
+                    timestamp = msg.get("created_time", "")
+                    created_time = "unknown"
+                    if timestamp:
+                        time_tuple = time.localtime(timestamp)
+                        # 格式化为字符串（年-月-日 时:分:秒）
+                        created_time = time.strftime('%Y-%m-%d %H:%M:%S', time_tuple)
                     tid = msg.get("tid", "")
                     content = msg.get("content", "")
                     logger.info(f"正在阅读说说内容: {content[:20]}")
@@ -424,17 +439,18 @@ class QzoneAPI:
                         rt_con = msg.get("rt_con").get("content")
                     #存储信息
                     feeds_list.append({"tid": tid,
+                                       "created_time": created_time,
                                        "content": content,
                                        "images": images,
                                        "videos": videos,
                                        "rt_con": rt_con})
             if len(feeds_list) == 0:
-                return [{"error" : '你已经看过所有说说了，没有必要再看一遍'}]
+                return [{"error": '你已经看过所有说说了，没有必要再看一遍'}]
             return feeds_list
 
         except Exception as e:
             #logger.error(str(json_data))
-            return [{"error" : f'{e},你没有看到任何东西'}]
+            return [{"error": f'{e},你没有看到任何东西'}]
 
     async def monitor_get_list(self, num: int) -> list[dict[str, Any]]:
         """获得qq号为target_qq的好友说说列表"""
@@ -442,22 +458,22 @@ class QzoneAPI:
             method="GET",
             url=self.ZONE_LIST_URL,
             params={
-                "uin": self.uin,              # QQ号
-                "scope": 0,              # 访问范围
-                "view": 1,              # 查看权限
-                "filter": "all",        # 全部动态
-                "flag": 1,              # 标记
-                "applist": "all",       # 所有应用
-                "pagenum": 1,        # 页码
-                "count": num,         # 每页条数
-                "aisortEndTime": 0,     # AI排序结束时间
-                "aisortOffset": 0,      # AI排序偏移
-                "aisortBeginTime": 0,   # AI排序开始时间
-                "begintime": 0,         # 开始时间
-                "format": "json",       # 返回格式
-                "g_tk": self.gtk2,          # 令牌
-                "useutf8": 1,          # 使用UTF8编码
-                "outputhtmlfeed": 1    # 输出HTML格式
+                "uin": self.uin,  # QQ号
+                "scope": 0,  # 访问范围
+                "view": 1,  # 查看权限
+                "filter": "all",  # 全部动态
+                "flag": 1,  # 标记
+                "applist": "all",  # 所有应用
+                "pagenum": 1,  # 页码
+                "count": num,  # 每页条数
+                "aisortEndTime": 0,  # AI排序结束时间
+                "aisortOffset": 0,  # AI排序偏移
+                "aisortBeginTime": 0,  # AI排序开始时间
+                "begintime": 0,  # 开始时间
+                "format": "json",  # 返回格式
+                "g_tk": self.gtk2,  # 令牌
+                "useutf8": 1,  # 使用UTF8编码
+                "outputhtmlfeed": 1  # 输出HTML格式
             },
             headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
@@ -586,7 +602,8 @@ class QzoneAPI:
             logger.error(f'解析说说错误：{str(e)}', exc_info=True)
             return []
 
-async def send_feed(message: str, image_directory: str, qq_account: str, enable_image : bool):
+
+async def send_feed(message: str, image_directory: str, qq_account: str, enable_image: bool):
     cookie_file = get_cookie_file_path(qq_account)
     if os.path.exists(cookie_file):
         try:
@@ -639,7 +656,8 @@ async def send_feed(message: str, image_directory: str, qq_account: str, enable_
         logger.error(traceback.format_exc())
         return False
 
-async def read_feed(qq_account: str,target_qq: str, num : int):
+
+async def read_feed(qq_account: str, target_qq: str, num: int):
     cookie_file = get_cookie_file_path(qq_account)
 
     if os.path.exists(cookie_file):
@@ -656,7 +674,7 @@ async def read_feed(qq_account: str,target_qq: str, num : int):
         return False
 
     try:
-        feeds_list = await qzone.get_list(target_qq,num)
+        feeds_list = await qzone.get_list(target_qq, num)
         #print(feeds_list)
         return feeds_list
     except Exception as e:
@@ -664,7 +682,8 @@ async def read_feed(qq_account: str,target_qq: str, num : int):
         logger.error(traceback.format_exc())
         return []
 
-async def monitor_read_feed(qq_account: str, num : int):
+
+async def monitor_read_feed(qq_account: str, num: int):
     cookie_file = get_cookie_file_path(qq_account)
 
     if os.path.exists(cookie_file):
@@ -682,13 +701,15 @@ async def monitor_read_feed(qq_account: str, num : int):
 
     try:
         feeds_list = await qzone.monitor_get_list(num)
-        print(feeds_list)
+        #print(feeds_list)
         return feeds_list
     except Exception as e:
         logger.error("获取list失败")
         logger.error(traceback.format_exc())
         return []
-async def like_feed(qq_account: str, target_qq: str,fid: str):
+
+
+async def like_feed(qq_account: str, target_qq: str, fid: str):
     cookie_file = get_cookie_file_path(qq_account)
     if os.path.exists(cookie_file):
         try:
@@ -711,7 +732,8 @@ async def like_feed(qq_account: str, target_qq: str,fid: str):
         return success
     return True
 
-async def comment_feed(qq_account: str, target_qq: str,fid: str,content: str):
+
+async def comment_feed(qq_account: str, target_qq: str, fid: str, content: str):
     cookie_file = get_cookie_file_path(qq_account)
 
     if os.path.exists(cookie_file):
@@ -728,14 +750,15 @@ async def comment_feed(qq_account: str, target_qq: str,fid: str,content: str):
         logger.error("Cookies 过期或无效")
         return False
 
-    success = await qzone.comment(fid, target_qq,content)
+    success = await qzone.comment(fid, target_qq, content)
     if not success:
         logger.error("评论失败")
         logger.error(traceback.format_exc())
         return False
     return True
 
-async def generate_image_by_sf(api_key : str, story : str, image_dir : str, batch_size : int = 1) ->bool:
+
+async def generate_image_by_sf(api_key: str, story: str, image_dir: str, batch_size: int = 1) -> bool:
     """用SiliconFlow生成图片并保存"""
     logger.info(f"正在生成图片,保存路径{image_dir}")
     models = llm_api.get_available_models()
@@ -747,7 +770,11 @@ async def generate_image_by_sf(api_key : str, story : str, image_dir : str, batc
         logger.error('配置模型失败')
         return False
     success, prompt, reasoning, model_name = await llm_api.generate_with_model(
-        prompt=f"请根据以下QQ空间说说内容配图，并构建生成配图的风格和prompt。说说主人信息：{bot_personality},{str(bot_details)}。说说内容:{story}。请注意：仅回复用于生成图片的prompt，不要添加问候、理由、建议或括号",
+        prompt=f"""
+        请根据以下QQ空间说说内容配图，并构建生成配图的风格和prompt。
+        说说主人信息：'{bot_personality},{str(bot_details)}'。
+        说说内容:'{story}'。 
+        请注意：仅回复用于生成图片的prompt，不要有其他的任何正文以外的冗余输出""",
         model_config=model_config,
         request_type="story.generate",
         temperature=0.3,
@@ -803,6 +830,42 @@ async def generate_image_by_sf(api_key : str, story : str, image_dir : str, batc
         return False
 
 
+async def get_send_history(qq_account: str) -> str:
+    cookie_file = get_cookie_file_path(qq_account)
+    if os.path.exists(cookie_file):
+        try:
+            with open(cookie_file, 'r') as f:
+                cookies = json.load(f)
+        except:
+            cookies = None
+    else:
+        cookies = None
+
+    qzone = QzoneAPI(cookies)
+    if not await qzone.token_valid():
+        logger.error("Cookies 过期或无效")
+        return "获取空间历史失败"
+    feeds_list = await qzone.get_list(target_qq=qq_account, num=5)
+    history = "==================="
+    for feed in feeds_list:
+        if not feed["rt_con"]:
+            history += f"""
+            时间：'{feed["created_time"]}'。
+            说说内容：'{feed["content"]}'
+            图片：'{feed["images"]}'
+            ===================
+            """
+        else:
+            history += f"""
+            时间: '{feed["created_time"]}'
+            转发了一条说说，内容为: '{feed["rt_con"]}'
+            图片: '{feed["images"]}'
+            对该说说的评论为: '{feed["content"]}'
+            ===================
+            """
+    return history
+
+
 # ===== 插件Command组件 =====
 class SendFeedCommand(BaseCommand):
     """发说说Command - 响应/send_feed命令"""
@@ -845,11 +908,25 @@ class SendFeedCommand(BaseCommand):
 
         bot_personality = config_api.get_global_config("personality.personality_core", "一个机器人")
         bot_expression = config_api.get_global_config("expression.expression_style", "内容积极向上")
+        qq_account = config_api.get_global_config("bot.qq_account", "")
 
         if topic:
-            prompt = f"你是{bot_personality}，你的表达风格是{bot_expression}，请写一条主题为{topic}的说说发表在qq空间上，确保符合人设，口语化，不要将理由写在括号中，不违反法律法规"
+            prompt = f"""
+            你是'{bot_personality}'，你想写一条主题是'{topic}'的说说发表在qq空间上，
+            {bot_expression}
+            不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，可以适当使用颜文字，
+            只输出一条说说正文的内容，不要有其他的任何正文以外的冗余输出
+            """
         else:
-            prompt = f"你是{bot_personality}，你的表达风格是{bot_expression}，请写一条任意主题的说说发表在qq空间上，确保符合人设，口语化，不要将理由写在括号中，不违反法律法规"
+            prompt = f"""
+            你是'{bot_personality}'，你想写一条说说发表在qq空间上，主题不限
+            {bot_expression}
+            不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，可以适当使用颜文字，
+            只输出一条说说正文的内容，不要有其他的任何正文以外的冗余输出
+            """
+
+        prompt += "\n以下是你以前发过的说说，写新说说时注意不要在相隔不长的时间发送相同主题的说说"
+        prompt += await get_send_history(qq_account)
 
         success, story, reasoning, model_name = await llm_api.generate_with_model(
             prompt=prompt,
@@ -865,13 +942,12 @@ class SendFeedCommand(BaseCommand):
         logger.info(f"成功生成说说内容：'{story}'")
 
         port = self.get_config("plugin.http_port", "9999")
-        qq_account = config_api.get_global_config("bot.qq_account", "")
         image_dir = self.get_config("send.image_directory", "./images")
         image_num = self.get_config("send.ai_image_number", 1)
         enable_ai_image = self.get_config("send.enable_ai_image", False)
         apikey = self.get_config("models.siliconflow_apikey", "")
         if enable_ai_image and apikey:
-            await generate_image_by_sf(api_key=apikey,story=story, image_dir=image_dir,batch_size=image_num)
+            await generate_image_by_sf(api_key=apikey, story=story, image_dir=image_dir, batch_size=image_num)
         elif enable_ai_image and not apikey:
             logger.error('请填写apikey')
         # 更新cookies
@@ -912,7 +988,7 @@ class SendFeedAction(BaseAction):
         "当有人希望你更新qq空间时使用",
         "当你认为适合发说说时使用",
     ]
-    associated_types = ["text","emoji"]
+    associated_types = ["text", "emoji"]
 
     def check_permission(self, qq_account: str) -> bool:
         """检查qq号为qq_account的用户是否拥有权限"""
@@ -932,7 +1008,7 @@ class SendFeedAction(BaseAction):
         user_name = self.action_data.get("user_name", "")
         person_id = person_api.get_person_id_by_name(user_name)
         user_id = await person_api.get_person_value(person_id, "user_id")
-        if not self.check_permission(user_id):  #若权限不足
+        if not self.check_permission(user_id):  # 若权限不足
             logger.info(f"{user_id}无{self.action_name}权限")
             success, reply_set = await generator_api.generate_reply(
                 chat_stream=self.chat_stream,
@@ -952,7 +1028,16 @@ class SendFeedAction(BaseAction):
 
         bot_personality = config_api.get_global_config("personality.personality_core", "一个机器人")
         bot_expression = config_api.get_global_config("expression.expression_style", "内容积极向上")
-        prompt = f"你是{bot_personality}，你的表达风格是{bot_expression}，请写一条主题为{topic}的说说发表在qq空间上，确保符合人设，不要将理由写在括号中，不违反法律法规"
+        qq_account = config_api.get_global_config("bot.qq_account", "")
+
+        prompt = f"""
+        你是{bot_personality}，你想写一条主题是{topic}的说说发表在qq空间上，
+        {bot_expression}
+        不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，可以适当使用颜文字，
+        只输出一条说说正文的内容，不要有其他的任何正文以外的冗余输出
+        """
+        prompt += "\n以下是你以前发过的说说，写新说说时注意不要在相隔不长的时间发送相同主题的说说"
+        prompt += await get_send_history(qq_account)
         success, story, reasoning, model_name = await llm_api.generate_with_model(
             prompt=prompt,
             model_config=model_config,
@@ -966,7 +1051,6 @@ class SendFeedAction(BaseAction):
 
         logger.info(f"生成说说内容：'{story}'，即将发送")
         port = self.get_config("plugin.http_port", "9999")
-        qq_account = config_api.get_global_config("bot.qq_account", "")
         image_dir = self.get_config("send.image_directory", "./images")
         image_num = self.get_config("send.ai_image_number", 1)
         enable_ai_image = self.get_config("send.enable_ai_image", False)
@@ -982,7 +1066,6 @@ class SendFeedAction(BaseAction):
         except Exception as e:
             logger.error(f"更新cookies失败: {str(e)}")
             return False, "更新cookies失败"
-
 
         # 发送说说
         enable_image = self.get_config("send.enable_image", "true")
@@ -1004,6 +1087,7 @@ class SendFeedAction(BaseAction):
             return True, 'success'
         return False, '生成回复失败'
 
+
 class ReadFeedAction(BaseAction):
     """读说说Action - 只在用户要求读说说时激活"""
 
@@ -1018,7 +1102,7 @@ class ReadFeedAction(BaseAction):
 
     action_parameters = {
         "target_name": "需要阅读动态的好友的qq名称",
-        "user_name" : "要求你阅读动态的好友的qq名称"
+        "user_name": "要求你阅读动态的好友的qq名称"
     }
 
     action_require = [
@@ -1077,9 +1161,9 @@ class ReadFeedAction(BaseAction):
         num = self.get_config("read.read_number", 5)
         like_possibility = self.get_config("read.like_possibility", 1.0)
         comment_possibility = self.get_config("read.comment_possibility", 1.0)
-        feeds_list = await read_feed(qq_account,target_qq,num)
+        feeds_list = await read_feed(qq_account, target_qq, num)
         if 'error' not in feeds_list[0]:
-          logger.info(f"成功读取到{len(feeds_list)}条说说")
+            logger.info(f"成功读取到{len(feeds_list)}条说说")
         #模型配置
         models = llm_api.get_available_models()
         text_model = self.get_config("models.text_model", "replyer_1")
@@ -1093,7 +1177,7 @@ class ReadFeedAction(BaseAction):
         if 'error' in feeds_list[0]:
             success, reply_set = await generator_api.generate_reply(
                 chat_stream=self.chat_stream,
-                action_data={"extra_info_block" : f'你在读取说说的时候出现了错误，错误原因：{feeds_list[0].get("error")}'}
+                action_data={"extra_info_block": f'你在读取说说的时候出现了错误，错误原因：{feeds_list[0].get("error")}'}
             )
 
             if success and reply_set:
@@ -1115,17 +1199,19 @@ class ReadFeedAction(BaseAction):
                 #评论说说
                 if not rt_con:
                     prompt = f"""
-                    你是{bot_personality}，你的表达风格是{bot_expression}，
-                    请对你的好友{target_name}qq空间上内容为'{content}'，的说说发表你的一条评论，
-                    确保符合人设，口语化，不要将理由写在括号中，不违反法律法规
+                    你是'{bot_personality}'，你正在浏览你好友'{target_name}'的QQ空间，
+                    你看到了你的好友'{target_name}'qq空间上内容是'{content}'的说说，你想要发表你的一条评论，
+                    {bot_expression}，回复的平淡一些，简短一些，说中文，
+                    不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。只输出回复内容
                     """
                 else:
                     prompt = f"""
-                    你是{bot_personality}，你的表达风格是{bot_expression}，
-                    你的好友{target_name}在qq空间上转发了一条内容为'{rt_con}'的说说，你的好友的评论为'{content}'
-                    请对好友的转发发表你的一条评论，确保符合人设，口语化，不要将理由写在括号中，不违反法律法规
+                    你是'{bot_personality}'，你正在浏览你好友'{target_name}'的QQ空间，
+                    你看到了你的好友'{target_name}'在qq空间上转发了一条内容为'{rt_con}'的说说，你的好友的评论为'{content}'
+                    你想要发表你的一条评论，{bot_expression}，回复的平淡一些，简短一些，说中文，
+                    不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。只输出回复内容
                     """
-                logger.info(f'正在评论{target_name}的说说：{content[:20]}...')
+                logger.info(f"正在评论'{target_name}'的说说：{content[:20]}...")
                 success, comment, reasoning, model_name = await llm_api.generate_with_model(
                     prompt=prompt,
                     model_config=model_config,
@@ -1139,14 +1225,14 @@ class ReadFeedAction(BaseAction):
 
                 logger.info(f"成功生成评论内容：'{comment}'，即将发送")
 
-                success = await comment_feed(qq_account,target_qq,fid,comment)
+                success = await comment_feed(qq_account, target_qq, fid, comment)
                 if not success:
                     logger.error(f"评论说说'{content}'失败")
                     return False, "评论说说失败"
                 logger.info(f"发送评论'{comment}'成功")
             # 点赞说说
             if random.random() <= like_possibility:
-                success = await like_feed(qq_account,target_qq,fid)
+                success = await like_feed(qq_account, target_qq, fid)
                 if not success:
                     logger.error(f"点赞说说'{content}'失败")
                     return False, "点赞说说失败"
@@ -1196,6 +1282,7 @@ class FeedMonitor:
             except asyncio.CancelledError:
                 pass
         logger.info("说说监控任务已停止")
+
     async def _monitor_loop(self):
         """监控循环"""
         while self.is_running:
@@ -1218,7 +1305,7 @@ class FeedMonitor:
                 # 出错后等待一段时间再重试
                 await asyncio.sleep(300)
 
-    async def check_feeds(self, read_num : int):
+    async def check_feeds(self, read_num: int):
         """检查好友说说"""
 
         qq_account = config_api.get_global_config("bot.qq_account", "")
@@ -1233,7 +1320,6 @@ class FeedMonitor:
         bot_personality = config_api.get_global_config("personality.personality_core", "一个机器人")
         bot_expression = config_api.get_global_config("expression.expression_style", "内容积极向上")
 
-
         # 更新cookies
         try:
             await renew_cookies(port)
@@ -1243,7 +1329,7 @@ class FeedMonitor:
 
         try:
             logger.info(f"监控任务: 正在获取说说列表")
-            feeds_list = await monitor_read_feed(qq_account,read_num)
+            feeds_list = await monitor_read_feed(qq_account, read_num)
         except Exception as e:
             logger.error(f"获取说说列表失败: {str(e)}")
             return False, "获取说说列表失败"
@@ -1264,17 +1350,19 @@ class FeedMonitor:
                 # 评论说说
                 if not rt_con:
                     prompt = f"""
-                    你是{bot_personality}，你的表达风格是{bot_expression}，
-                    请对你的好友{target_qq}qq空间上内容为'{content}'，的说说发表你的一条评论，
-                    确保符合人设，口语化，不要将理由写在括号中，不违反法律法规
+                    你是'{bot_personality}'，你正在浏览你好友'{target_qq}'的QQ空间，
+                    你看到了你的好友'{target_qq}'qq空间上内容是'{content}'的说说，你想要发表你的一条评论，
+                    {bot_expression}，回复的平淡一些，简短一些，说中文，
+                    不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。只输出回复内容
                     """
                 else:
                     prompt = f"""
-                    你是{bot_personality}，你的表达风格是{bot_expression}，
-                    你的好友{target_qq}在qq空间上转发了一条内容为'{rt_con}'的说说，你的好友的评论为'{content}'
-                    请对好友的转发发表你的一条评论，确保符合人设，口语化，不要将理由写在括号中，不违反法律法规
+                    你是'{bot_personality}'，你正在浏览你好友'{target_qq}'的QQ空间，
+                    你看到了你的好友'{target_qq}'在qq空间上转发了一条内容为'{rt_con}'的说说，你的好友的评论为'{content}'
+                    你想要发表你的一条评论，{bot_expression}，回复的平淡一些，简短一些，说中文，
+                    不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。只输出回复内容
                     """
-                logger.info(f'正在评论{target_qq}的说说：{content[:20]}...')
+                logger.info(f"正在评论'{target_qq}'的说说：{content[:20]}...")
                 success, comment, reasoning, model_name = await llm_api.generate_with_model(
                     prompt=prompt,
                     model_config=model_config,
@@ -1305,6 +1393,131 @@ class FeedMonitor:
             return False, "点赞评论失败"
 
 
+class ScheduleSender:
+    """定时发送说说的类"""
+
+    def __init__(self, plugin):
+        self.plugin = plugin
+        self.is_running = False
+        self.task = None
+        self.last_send_time = 0
+
+    async def start(self):
+        """启动定时发送任务"""
+        if self.is_running:
+            return
+        self.is_running = True
+        self.task = asyncio.create_task(self._schedule_loop())
+        logger.info("定时发送说说任务已启动")
+
+    async def stop(self):
+        """停止定时发送任务"""
+        if not self.is_running:
+            return
+        self.is_running = False
+        if self.task:
+            self.task.cancel()
+            try:
+                await self.task
+            except asyncio.CancelledError:
+                pass
+        logger.info("定时发送说说任务已停止")
+
+    async def _schedule_loop(self):
+        """定时发送循环"""
+        while self.is_running:
+            try:
+                # 获取配置
+                schedule_times = self.plugin.get_config("schedule.schedule_times", ["08:00", "20:00"])
+                current_time = datetime.datetime.now().strftime("%H:%M")
+
+                # 检查是否到达发送时间
+                if current_time in schedule_times:
+                    # 避免同一分钟内重复发送
+                    if time.time() - self.last_send_time > 60:
+                        logger.info("定时任务：正在发送说说")
+                        self.last_send_time = time.time()
+                        await self.send_scheduled_feed()
+
+                # 每分钟检查一次
+                await asyncio.sleep(60)
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"定时发送任务出错: {str(e)}")
+                await asyncio.sleep(300)  # 出错后等待5分钟再重试
+
+    async def send_scheduled_feed(self):
+        """发送定时说说"""
+        models = llm_api.get_available_models()
+        text_model = self.plugin.get_config("models.text_model", "replyer_1")
+        model_config = getattr(models, text_model, None)
+        if not model_config:
+            logger.error("未配置LLM模型")
+            return
+
+        # 获取主题设置
+        random_topic = self.plugin.get_config("schedule.random_topic", True)
+        fixed_topics = self.plugin.get_config("schedule.fixed_topics", ["日常生活", "心情分享", "有趣见闻"])
+
+        bot_personality = config_api.get_global_config("personality.personality_core", "一个机器人")
+        bot_expression = config_api.get_global_config("expression.expression_style", "内容积极向上")
+        qq_account = config_api.get_global_config("bot.qq_account", "")
+
+        # 生成说说内容
+        if random_topic:
+            prompt = f"""
+            你是'{bot_personality}'，你想写一条说说发表在qq空间上，主题不限
+            {bot_expression}
+            不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，可以适当使用颜文字，
+            只输出一条说说正文的内容，不要有其他的任何正文以外的冗余输出
+            """
+        else:
+            fixed_topic = random.choice(fixed_topics)
+            prompt = f"""
+            你是'{bot_personality}'，你想写一条主题是'{fixed_topic}'的说说发表在qq空间上，
+            {bot_expression}
+            不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，可以适当使用颜文字，
+            只输出一条说说正文的内容，不要有其他的任何正文以外的冗余输出
+            """
+
+        prompt += "\n以下是你最近发过的说说，写新说说时注意不要在相隔不长的时间发送相似内容的说说\n"
+        prompt += await get_send_history(qq_account)
+
+        success, story, reasoning, model_name = await llm_api.generate_with_model(
+            prompt=prompt,
+            model_config=model_config,
+            request_type="story.generate",
+            temperature=0.3,
+            max_tokens=1000
+        )
+
+        if not success:
+            logger.error("生成说说内容失败")
+            return
+
+        logger.info(f"定时任务生成说说内容：'{story}'")
+
+        # 发送说说
+        port = self.plugin.get_config("plugin.http_port", "9999")
+        image_dir = self.plugin.get_config("send.image_directory", "./images")
+        enable_image = self.plugin.get_config("send.enable_image", True)
+
+        # 更新cookies
+        try:
+            await renew_cookies(port)
+        except Exception as e:
+            logger.error(f"更新cookies失败: {str(e)}")
+            return
+
+        # 发送说说
+        success = await send_feed(story, image_dir, qq_account, enable_image)
+        if success:
+            logger.info(f"定时任务成功发送说说: {story}")
+        else:
+            logger.error("定时任务发送说说失败")
+
 
 # ===== 插件注册 =====
 @register_plugin
@@ -1313,7 +1526,7 @@ class MaizonePlugin(BasePlugin):
 
     plugin_name = "Maizone"
     plugin_description = "让麦麦实现QQ空间点赞、评论、发说说"
-    plugin_version = "1.0.2"
+    plugin_version = "1.1.0"
     plugin_author = "internetsb"
     enable_plugin = False
     config_file_name = "config.toml"
@@ -1323,38 +1536,52 @@ class MaizonePlugin(BasePlugin):
         "models": "插件模型配置",
         "send": "发送说说配置",
         "read": "阅读说说配置",
+        "monitor": "自动刷空间配置",
+        "schedule": "定时发送说说配置",
     }
 
     config_schema = {
         "plugin": {
-            "enable" : ConfigField(type=bool, default=True, description="是否启用插件"),
+            "enable": ConfigField(type=bool, default=True, description="是否启用插件"),
             "http_port": ConfigField(type=str, default='9999', description="Napcat设定http服务器端口号"),
             "cookie_directory": ConfigField(type=str, default='./plugins/Maizone', description="生成cookie的目录"),
         },
         "models": {
             "text_model": ConfigField(type=str, default="replyer_1", description="生成文本的模型（从全局变量读取）"),
-            "siliconflow_apikey":ConfigField(type=str, default="", description="用于硅基流动ai生图的apikey"),
+            "siliconflow_apikey": ConfigField(type=str, default="", description="用于硅基流动ai生图的apikey"),
         },
         "send": {
-            "permission": ConfigField(type=list, default=['114514','1919810',], description="权限QQ号列表（请以相同格式添加）"),
+            "permission": ConfigField(type=list, default=['114514', '1919810', ],
+                                      description="权限QQ号列表（请以相同格式添加）"),
             "permission_type": ConfigField(type=str, default='whitelist',
-                                          description="whitelist:在列表中的QQ号有权限，blacklist:在列表中的QQ号无权限"),
-            "enable_image": ConfigField(type=bool, default=False, description="是否启用带图片的说说（禁用Ai生图将从已注册表情包中获取）"),
+                                           description="whitelist:在列表中的QQ号有权限，blacklist:在列表中的QQ号无权限"),
+            "enable_image": ConfigField(type=bool, default=False,
+                                        description="是否启用带图片的说说（禁用Ai生图将从已注册表情包中获取）"),
             "enable_ai_image": ConfigField(type=bool, default=False, description="是否启用Ai生成带图片的说说"),
             "ai_image_number": ConfigField(type=int, default=1, description="一次生成几张图片(范围1至4)"),
             "image_directory": ConfigField(type=str, default="./plugins/Maizone/images", description="图片存储目录")
         },
         "read": {
-            "permission": ConfigField(type=list, default=['114514', '1919810', ], description="权限QQ号列表（请以相同格式添加）"),
+            "permission": ConfigField(type=list, default=['114514', '1919810', ],
+                                      description="权限QQ号列表（请以相同格式添加）"),
             "permission_type": ConfigField(type=str, default='blacklist',
-                                          description="whitelist:在列表中的QQ号有权限，blacklist:在列表中的QQ号无权限"),
-            "read_number" : ConfigField(type=int,default=5,description="一次读取最新的几条说说"),
-            "like_possibility" : ConfigField(type=float,default=1.0,description="麦麦读说说后点赞的概率（0到1）"),
-            "comment_possibility" : ConfigField(type=float,default=1.0,description="麦麦读说说后评论的概率（0到1）"),
+                                           description="whitelist:在列表中的QQ号有权限，blacklist:在列表中的QQ号无权限"),
+            "read_number": ConfigField(type=int, default=5, description="一次读取最新的几条说说"),
+            "like_possibility": ConfigField(type=float, default=1.0, description="麦麦读说说后点赞的概率（0到1）"),
+            "comment_possibility": ConfigField(type=float, default=1.0, description="麦麦读说说后评论的概率（0到1）"),
         },
         "monitor": {
-            "enable_auto_monitor": ConfigField(type=bool, default=False, description="是否启用刷空间（自动阅读所有好友说说）"),
+            "enable_auto_monitor": ConfigField(type=bool, default=False,
+                                               description="是否启用刷空间（自动阅读所有好友说说）"),
             "interval_minutes": ConfigField(type=int, default=5, description="阅读间隔(分钟)"),
+        },
+        "schedule": {
+            "enable_schedule": ConfigField(type=bool, default=False, description="是否启用定时发送说说"),
+            "schedule_times": ConfigField(type=list, default=["08:00", "20:00"],
+                                          description="定时发送时间列表，按照示例添加修改"),
+            "random_topic": ConfigField(type=bool, default=True, description="是否使用随机主题"),
+            "fixed_topics": ConfigField(type=list, default=["日常生活", "心情分享", "有趣见闻"],
+                                        description="固定主题列表（当random_topic为False时从中随机选择）"),
         },
     }
 
@@ -1369,8 +1596,12 @@ class MaizonePlugin(BasePlugin):
             # 根据配置初始化监控
             if self.get_config("monitor.enable_auto_monitor", False):
                 self.monitor = FeedMonitor(self)
-                # 创建异步任务启动监控
                 asyncio.create_task(self._start_monitor_after_delay())
+
+            # 根据配置初始化日程
+            if self.get_config("schedule.enable_schedule", False):
+                self.scheduler = ScheduleSender(self)
+                asyncio.create_task(self._start_scheduler_after_delay())
 
     async def _start_monitor_after_delay(self):
         """延迟启动监控任务"""
@@ -1378,6 +1609,12 @@ class MaizonePlugin(BasePlugin):
         await asyncio.sleep(10)
         if self.monitor:
             await self.monitor.start()
+
+    async def _start_scheduler_after_delay(self):
+        """延迟启动日程任务"""
+        await asyncio.sleep(10)
+        if self.scheduler:
+            await self.scheduler.start()
 
     def get_plugin_components(self) -> List[Tuple[ComponentInfo, Type]]:
         return [
