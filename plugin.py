@@ -1165,12 +1165,24 @@ class SendFeedAction(BaseAction):
         models = llm_api.get_available_models()
         text_model = self.get_config("models.text_model", "replyer_1")
         model_config = getattr(models, text_model, None)
+
         if not model_config:
             return False, "未配置LLM模型"
 
         bot_personality = config_api.get_global_config("personality.personality_core", "一个机器人")
         bot_expression = config_api.get_global_config("expression.expression_style", "内容积极向上")
         qq_account = config_api.get_global_config("bot.qq_account", "")
+
+        port = self.get_config("plugin.http_port", "9999")
+        image_dir = self.get_config("send.image_directory", "./images")
+        image_num = self.get_config("send.ai_image_number", 1)
+        enable_ai_image = self.get_config("send.enable_ai_image", False)
+        apikey = self.get_config("models.siliconflow_apikey", "")
+        try:
+            await renew_cookies(port)
+        except Exception as e:
+            logger.error(f"更新cookies失败: {str(e)}")
+            return False, "更新cookies失败"
 
         prompt = f"""
         你是{bot_personality}，你想写一条主题是{topic}的说说发表在qq空间上，
@@ -1193,11 +1205,6 @@ class SendFeedAction(BaseAction):
             return False, "生成说说内容失败"
 
         logger.info(f"生成说说内容：'{story}'，即将发送")
-        port = self.get_config("plugin.http_port", "9999")
-        image_dir = self.get_config("send.image_directory", "./images")
-        image_num = self.get_config("send.ai_image_number", 1)
-        enable_ai_image = self.get_config("send.enable_ai_image", False)
-        apikey = self.get_config("models.siliconflow_apikey", "")
         if enable_ai_image and apikey:
             await generate_image_by_sf(api_key=apikey, story=story, image_dir=image_dir, batch_size=image_num)
         elif enable_ai_image and not apikey:
