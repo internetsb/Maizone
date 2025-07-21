@@ -1,7 +1,7 @@
 {
   "manifest_version": 1,
   "name": "Maizone（麦麦空间）",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "让你的麦麦发QQ空间，评论，点赞",
   "author": {
     "name": "internetsb",
@@ -11,7 +11,7 @@
   
   "host_application": {
     "min_version": "0.8.0",
-    "max_version": "0.8.0"
+    "max_version": "0.8.1"
   },
   "homepage_url": "https://github.com/internetsb/Maizone",
   "repository_url": "https://github.com/internetsb/Maizone",
