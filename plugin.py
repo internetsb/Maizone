@@ -30,6 +30,7 @@ logger = get_logger('Maizone')
 # ===== QZone API 功能 =====
 def get_cookie_file_path(uin: str) -> str:
     """构建cookie路径"""
+    uin = uin.lstrip("0")
     return os.path.join(os.getcwd(), 'plugins/Maizone/', f"cookies-{uin}.json")
 
 
@@ -49,13 +50,20 @@ def extract_uin_from_cookie(cookie_str: str) -> str:
 async def fetch_cookies(domain: str, port: str) -> dict:
     """获取cookie"""
     url = f"http://127.0.0.1:{port}/get_cookies?domain={domain}"
-    async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
-        data = resp.json()
-        if data.get("status") != "ok" or "cookies" not in data.get("data", {}):
-            raise RuntimeError(f"获取 cookie 失败: {data}")
-        return data["data"]
+    try:
+        async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            data = resp.json()
+            if data.get("status") != "ok" or "cookies" not in data.get("data", {}):
+                raise RuntimeError(f"获取 cookie 失败: {data}")
+            return data["data"]
+    except httpx.RequestError as e:
+        logger.error(f"无法连接到Napcat服务: {url}，错误: {str(e)}")
+        raise RuntimeError(f"无法连接到Napcat服务: {url}")
+    except Exception as e:
+        logger.error(f"获取cookie异常: {str(e)}")
+        raise
 
 
 async def renew_cookies(port: str):
@@ -718,9 +726,11 @@ async def send_feed(message: str, image_directory: str, qq_account: str, enable_
         try:
             with open(cookie_file, 'r') as f:
                 cookies = json.load(f)
-        except:
+        except Exception as e:
+            logger.error(f"读取 cookie 文件失败: {cookie_file}，错误: {e}")
             cookies = None
     else:
+        logger.error(f"cookie 文件不存在: {cookie_file}")
         cookies = None
 
     qzone = QzoneAPI(cookies)
@@ -773,9 +783,11 @@ async def read_feed(qq_account: str, target_qq: str, num: int):
         try:
             with open(cookie_file, 'r') as f:
                 cookies = json.load(f)
-        except:
+        except Exception as e:
+            logger.error(f"读取 cookie 文件失败: {cookie_file}，错误: {e}")
             cookies = None
     else:
+        logger.error(f"cookie 文件不存在: {cookie_file}")
         cookies = None
     qzone = QzoneAPI(cookies)
     if not await qzone.token_valid():
@@ -800,9 +812,11 @@ async def monitor_read_feed(qq_account: str, num: int):
         try:
             with open(cookie_file, 'r') as f:
                 cookies = json.load(f)
-        except:
+        except Exception as e:
+            logger.error(f"读取 cookie 文件失败: {cookie_file}，错误: {e}")
             cookies = None
     else:
+        logger.error(f"cookie 文件不存在: {cookie_file}")
         cookies = None
     qzone = QzoneAPI(cookies)
     if not await qzone.token_valid():
@@ -826,9 +840,11 @@ async def like_feed(qq_account: str, target_qq: str, fid: str):
         try:
             with open(cookie_file, 'r') as f:
                 cookies = json.load(f)
-        except:
+        except Exception as e:
+            logger.error(f"读取 cookie 文件失败: {cookie_file}，错误: {e}")
             cookies = None
     else:
+        logger.error(f"cookie 文件不存在: {cookie_file}")
         cookies = None
 
     qzone = QzoneAPI(cookies)
@@ -852,9 +868,11 @@ async def comment_feed(qq_account: str, target_qq: str, fid: str, content: str):
         try:
             with open(cookie_file, 'r') as f:
                 cookies = json.load(f)
-        except:
+        except Exception as e:
+            logger.error(f"读取 cookie 文件失败: {cookie_file}，错误: {e}")
             cookies = None
     else:
+        logger.error(f"cookie 文件不存在: {cookie_file}")
         cookies = None
 
     qzone = QzoneAPI(cookies)
@@ -878,9 +896,11 @@ async def reply_feed(fid: str, qq_account: str, target_qq: str, target_nickname:
         try:
             with open(cookie_file, 'r') as f:
                 cookies = json.load(f)
-        except:
+        except Exception as e:
+            logger.error(f"读取 cookie 文件失败: {cookie_file}，错误: {e}")
             cookies = None
     else:
+        logger.error(f"cookie 文件不存在: {cookie_file}")
         cookies = None
 
     qzone = QzoneAPI(cookies)
@@ -975,9 +995,11 @@ async def get_send_history(qq_account: str) -> str:
         try:
             with open(cookie_file, 'r') as f:
                 cookies = json.load(f)
-        except:
+        except Exception as e:
+            logger.error(f"读取 cookie 文件失败: {cookie_file}，错误: {e}")
             cookies = None
     else:
+        logger.error(f"cookie 文件不存在: {cookie_file}")
         cookies = None
 
     qzone = QzoneAPI(cookies)
@@ -1548,7 +1570,7 @@ class FeedMonitor:
                             logger.error(f"回复评论{comment['content']}失败")
                             return False, "回复评论失败"
                         logger.info(f"发送回复'{reply}'成功")
-                        await asyncio.sleep(60 + random.random() * 10)
+                        await asyncio.sleep(10 + random.random() * 10)
                     continue
                 # 评论他人说说
                 if not rt_con:
@@ -1728,7 +1750,7 @@ class MaizonePlugin(BasePlugin):
 
     plugin_name = "Maizone"
     plugin_description = "让麦麦实现QQ空间点赞、评论、发说说"
-    plugin_version = "1.2.0"
+    plugin_version = "1.2.1"
     plugin_author = "internetsb"
     enable_plugin = False
     config_file_name = "config.toml"
@@ -1776,7 +1798,7 @@ class MaizonePlugin(BasePlugin):
             "enable_auto_monitor": ConfigField(type=bool, default=False,
                                                description="是否启用刷空间（自动阅读所有好友说说）"),
             "enable_auto_reply": ConfigField(type=bool, default=False,
-                                               description="是否启用自动回复自己说说的评论（当enable_auto_monitor为True）"),
+                                             description="是否启用自动回复自己说说的评论（当enable_auto_monitor为True）"),
             "interval_minutes": ConfigField(type=int, default=5, description="阅读间隔(分钟)"),
         },
         "schedule": {
