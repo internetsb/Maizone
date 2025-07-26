@@ -2,4 +2,3 @@ httpx
 requests
 bs4
 json5
-asyncio

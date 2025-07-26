@@ -5,7 +5,7 @@ import random
 import time
 import datetime
 import traceback
-from typing import List, Tuple, Type, Any
+from typing import List, Tuple, Type, Any, Optional
 from pathlib import Path
 
 import httpx
@@ -28,9 +28,10 @@ logger = get_logger('Maizone')
 
 
 # ===== QZone API 功能 =====
+
 def get_cookie_file_path(uin: str) -> str:
     """构建cookie路径"""
-    uin = uin.lstrip("0")
+    uin = uin.lstrip("0")   # 去除可能的前缀0
     return os.path.join(os.getcwd(), 'plugins/Maizone/', f"cookies-{uin}.json")
 
 
@@ -49,7 +50,7 @@ def extract_uin_from_cookie(cookie_str: str) -> str:
 
 async def fetch_cookies(domain: str, port: str) -> dict:
     """获取cookie"""
-    url = f"http://127.0.0.1:{port}/get_cookies?domain={domain}"
+    url = f"ws://127.0.0.1:{port}/get_cookies?domain={domain}"
     try:
         async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
             resp = await client.get(url)
@@ -112,7 +113,7 @@ def get_picbo_and_richval(upload_result):
     return picbo, richval
 
 
-def extract_code(html_content: str) -> int:
+def extract_code(html_content: str) -> Any | None:
     """从QQ空间响应HTML中提取code值"""
     try:
         # 创建BeautifulSoup对象
@@ -123,7 +124,7 @@ def extract_code(html_content: str) -> int:
                 script_content = script.string
                 start_index = script_content.find('frameElement.callback(') + len('frameElement.callback(')
                 end_index = script_content.rfind(');')  # 找到最后一个分号作为结束
-                if start_index > 0 and end_index > start_index:
+                if 0 < start_index < end_index:
                     json_str = script_content[start_index:end_index].strip()
                     if json_str.endswith(';'):
                         json_str = json_str[:-1]
@@ -133,6 +134,11 @@ def extract_code(html_content: str) -> int:
         return None
     except:
         return None
+
+
+def image_to_base64(image: bytes) -> str:
+    pic_base64 = base64.b64encode(image)
+    return str(pic_base64)[2:-1]
 
 
 class QzoneAPI:
@@ -181,19 +187,6 @@ class QzoneAPI:
             timeout=timeout
         )
 
-    async def token_valid(self, retry=3) -> bool:
-        for i in range(retry):
-            try:
-                return True
-            except Exception as e:
-                traceback.print_exc()
-                if i == retry - 1:
-                    return False
-
-    def image_to_base64(self, image: bytes) -> str:
-        pic_base64 = base64.b64encode(image)
-        return str(pic_base64)[2:-1]
-
     async def get_image_base64_by_url(self, url: str) -> str:
         res = await self.do(
             method="GET",
@@ -235,7 +228,7 @@ class QzoneAPI:
                             "http://119.147.64.75/cgi-bin/upload/cgi_upload_image",
                 "url": "https://up.qzone.qq.com/cgi-bin/upload/cgi_upload_image?g_tk=" + self.gtk2,
                 "base64": "1",
-                "picfile": self.image_to_base64(image),
+                "picfile": image_to_base64(image),
             },
             headers={
                 'referer': 'https://user.qzone.qq.com/' + str(self.uin),
@@ -720,7 +713,8 @@ class QzoneAPI:
             return []
 
 
-async def send_feed(message: str, image_directory: str, qq_account: str, enable_image: bool):
+def get_qzone_api(qq_account: str) -> QzoneAPI | None:
+    """获取QzoneAPI实例"""
     cookie_file = get_cookie_file_path(qq_account)
     if os.path.exists(cookie_file):
         try:
@@ -733,10 +727,16 @@ async def send_feed(message: str, image_directory: str, qq_account: str, enable_
         logger.error(f"cookie 文件不存在: {cookie_file}")
         cookies = None
 
-    qzone = QzoneAPI(cookies)
-    if not await qzone.token_valid():
-        logger.error("Cookies 过期或无效")
-        return False
+    if cookies:
+        qzone = QzoneAPI(cookies)
+        return qzone
+    else:
+        return None
+
+
+async def send_feed(message: str, image_directory: str, qq_account: str, enable_image: bool):
+    """发送说说及图片"""
+    qzone = get_qzone_api(qq_account)
 
     images = []
     if os.path.exists(image_directory) and enable_image:
@@ -777,22 +777,8 @@ async def send_feed(message: str, image_directory: str, qq_account: str, enable_
 
 
 async def read_feed(qq_account: str, target_qq: str, num: int):
-    cookie_file = get_cookie_file_path(qq_account)
-
-    if os.path.exists(cookie_file):
-        try:
-            with open(cookie_file, 'r') as f:
-                cookies = json.load(f)
-        except Exception as e:
-            logger.error(f"读取 cookie 文件失败: {cookie_file}，错误: {e}")
-            cookies = None
-    else:
-        logger.error(f"cookie 文件不存在: {cookie_file}")
-        cookies = None
-    qzone = QzoneAPI(cookies)
-    if not await qzone.token_valid():
-        logger.error("Cookies 过期或无效")
-        return False
+    """阅读指定qq号的说说，返回说说列表"""
+    qzone = get_qzone_api(qq_account)
 
     try:
         feeds_list = await qzone.get_list(target_qq, num)
@@ -806,22 +792,7 @@ async def read_feed(qq_account: str, target_qq: str, num: int):
 
 async def monitor_read_feed(qq_account: str, num: int):
     """自动阅读说说，返回说说列表"""
-    cookie_file = get_cookie_file_path(qq_account)
-
-    if os.path.exists(cookie_file):
-        try:
-            with open(cookie_file, 'r') as f:
-                cookies = json.load(f)
-        except Exception as e:
-            logger.error(f"读取 cookie 文件失败: {cookie_file}，错误: {e}")
-            cookies = None
-    else:
-        logger.error(f"cookie 文件不存在: {cookie_file}")
-        cookies = None
-    qzone = QzoneAPI(cookies)
-    if not await qzone.token_valid():
-        logger.error("Cookies 过期或无效")
-        return False
+    qzone = get_qzone_api(qq_account)
 
     try:
         feeds_list = await qzone.monitor_get_list(num)
@@ -835,22 +806,7 @@ async def monitor_read_feed(qq_account: str, num: int):
 
 async def like_feed(qq_account: str, target_qq: str, fid: str):
     """点赞说说"""
-    cookie_file = get_cookie_file_path(qq_account)
-    if os.path.exists(cookie_file):
-        try:
-            with open(cookie_file, 'r') as f:
-                cookies = json.load(f)
-        except Exception as e:
-            logger.error(f"读取 cookie 文件失败: {cookie_file}，错误: {e}")
-            cookies = None
-    else:
-        logger.error(f"cookie 文件不存在: {cookie_file}")
-        cookies = None
-
-    qzone = QzoneAPI(cookies)
-    if not await qzone.token_valid():
-        logger.error("Cookies 过期或无效")
-        return False
+    qzone = get_qzone_api(qq_account)
 
     success = await qzone.like(fid, target_qq)
     if not success:
@@ -862,23 +818,7 @@ async def like_feed(qq_account: str, target_qq: str, fid: str):
 
 async def comment_feed(qq_account: str, target_qq: str, fid: str, content: str):
     """评论说说"""
-    cookie_file = get_cookie_file_path(qq_account)
-
-    if os.path.exists(cookie_file):
-        try:
-            with open(cookie_file, 'r') as f:
-                cookies = json.load(f)
-        except Exception as e:
-            logger.error(f"读取 cookie 文件失败: {cookie_file}，错误: {e}")
-            cookies = None
-    else:
-        logger.error(f"cookie 文件不存在: {cookie_file}")
-        cookies = None
-
-    qzone = QzoneAPI(cookies)
-    if not await qzone.token_valid():
-        logger.error("Cookies 过期或无效")
-        return False
+    qzone = get_qzone_api(qq_account)
 
     success = await qzone.comment(fid, target_qq, content)
     if not success:
@@ -890,23 +830,7 @@ async def comment_feed(qq_account: str, target_qq: str, fid: str, content: str):
 
 async def reply_feed(fid: str, qq_account: str, target_qq: str, target_nickname: str, content: str, comment_tid: str):
     """评论说说"""
-    cookie_file = get_cookie_file_path(qq_account)
-
-    if os.path.exists(cookie_file):
-        try:
-            with open(cookie_file, 'r') as f:
-                cookies = json.load(f)
-        except Exception as e:
-            logger.error(f"读取 cookie 文件失败: {cookie_file}，错误: {e}")
-            cookies = None
-    else:
-        logger.error(f"cookie 文件不存在: {cookie_file}")
-        cookies = None
-
-    qzone = QzoneAPI(cookies)
-    if not await qzone.token_valid():
-        logger.error("Cookies 过期或无效")
-        return False
+    qzone = get_qzone_api(qq_account)
 
     success = await qzone.reply(fid, target_qq, target_nickname, content, comment_tid)
     if not success:
@@ -921,9 +845,9 @@ async def generate_image_by_sf(api_key: str, story: str, image_dir: str, batch_s
     logger.info(f"正在生成图片,保存路径{image_dir}")
     models = llm_api.get_available_models()
     prompt_model = "replyer_1"
-    model_config = getattr(models, prompt_model, None)
+    model_config = models[prompt_model]
     bot_personality = config_api.get_global_config("personality.personality_core", "一个机器人")
-    bot_details = config_api.get_global_config("identity.identity_detail", "未知")
+    bot_details = config_api.get_global_config("personality.identity", "未知")
     if not model_config:
         logger.error('配置模型失败')
         return False
@@ -953,7 +877,8 @@ async def generate_image_by_sf(api_key: str, story: str, image_dir: str, batch_s
         sf_data = {
             "model": "Kwai-Kolors/Kolors",
             "prompt": prompt,
-            "negative_prompt": "lowres, bad anatomy, bad hands, text, error, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry",
+            "negative_prompt": "lowres, bad anatomy, bad hands, text, error, cropped, worst quality, low quality, "
+                               "normal quality, jpeg artifacts, signature, watermark, username, blurry",
             "image_size": "1024x1024",
             "batch_size": batch_size,
             "seed": random.randint(1, 9999999999),
@@ -990,22 +915,7 @@ async def generate_image_by_sf(api_key: str, story: str, image_dir: str, batch_s
 
 
 async def get_send_history(qq_account: str) -> str:
-    cookie_file = get_cookie_file_path(qq_account)
-    if os.path.exists(cookie_file):
-        try:
-            with open(cookie_file, 'r') as f:
-                cookies = json.load(f)
-        except Exception as e:
-            logger.error(f"读取 cookie 文件失败: {cookie_file}，错误: {e}")
-            cookies = None
-    else:
-        logger.error(f"cookie 文件不存在: {cookie_file}")
-        cookies = None
-
-    qzone = QzoneAPI(cookies)
-    if not await qzone.token_valid():
-        logger.error("Cookies 过期或无效")
-        return "获取空间历史失败"
+    qzone = get_qzone_api(qq_account)
     feeds_list = await qzone.get_list(target_qq=qq_account, num=5)
     history = "==================="
     for feed in feeds_list:
@@ -1052,20 +962,22 @@ class SendFeedCommand(BaseCommand):
             logger.error('permission_type错误，可能为拼写错误')
             return False
 
-    async def execute(self) -> Tuple[bool, str]:
+    async def execute(self) -> tuple[bool, Optional[str], bool]:
         #权限检查
         user_id = self.message.message_info.user_info.user_id
         if not self.check_permission(user_id):
             logger.info(f"{user_id}无{self.command_name}权限")
             await self.send_text(f"{user_id}权限不足，无权使用此命令")
-            return False, ""
+            return False, f"{user_id}权限不足，无权使用此命令", True
+        else:
+            logger.info(f"{user_id}拥有{self.command_name}权限")
 
         topic = self.matched_groups.get("topic")
         models = llm_api.get_available_models()
         text_model = self.get_config("models.text_model", "replyer_1")
-        model_config = getattr(models, text_model, None)
+        model_config = models[text_model]
         if not model_config:
-            return False, "未配置LLM模型"
+            return False, "未配置LLM模型", True
 
         bot_personality = config_api.get_global_config("personality.personality_core", "一个机器人")
         bot_expression = config_api.get_global_config("expression.expression_style", "内容积极向上")
@@ -1082,7 +994,7 @@ class SendFeedCommand(BaseCommand):
             await renew_cookies(port)
         except Exception as e:
             logger.error(f"更新cookies失败: {str(e)}")
-            return False, "更新cookies失败"
+            return False, "更新cookies失败", True
 
         if topic:
             prompt = f"""
@@ -1112,7 +1024,7 @@ class SendFeedCommand(BaseCommand):
         )
 
         if not success:
-            return False, "生成说说内容失败"
+            return False, "生成说说内容失败", True
 
         logger.info(f"成功生成说说内容：'{story}'")
 
@@ -1125,9 +1037,9 @@ class SendFeedCommand(BaseCommand):
         enable_image = self.get_config("send.enable_image", "true")
         success = await send_feed(story, image_dir, qq_account, enable_image)
         if not success:
-            return False, "发送说说失败"
+            return False, "发送说说失败", True
         await self.send_text(f"已发送说说：\n{story}")
-        return True, 'success'
+        return True, 'success', True
 
 
 # ===== 插件Action组件 =====
@@ -1171,10 +1083,20 @@ class SendFeedAction(BaseAction):
         #检查权限
         user_name = self.action_data.get("user_name", "")
         person_id = person_api.get_person_id_by_name(user_name)
+        if not person_id:
+            logger.error(f"未找到用户 {user_name} 的person_id")
+            success, reply_set, prompt_ = await generator_api.generate_reply(
+                chat_stream=self.chat_stream,
+                action_data={"extra_info_block": f'你不认识{user_name}，无法阅读他的说说，请用符合你人格特点的方式拒绝请求'}
+            )
+            if success and reply_set:
+                reply_type, reply_content = reply_set[0]
+                await self.send_text(reply_content)
+            return False, "未找到用户的person_id"
         user_id = await person_api.get_person_value(person_id, "user_id")
         if not self.check_permission(user_id):  # 若权限不足
             logger.info(f"{user_id}无{self.action_name}权限")
-            success, reply_set = await generator_api.generate_reply(
+            success, reply_set, prompt_ = await generator_api.generate_reply(
                 chat_stream=self.chat_stream,
                 action_data={"extra_info_block": f'{user_name}无权命令你发送说说，请用符合你人格特点的方式拒绝请求'}
             )
@@ -1182,11 +1104,13 @@ class SendFeedAction(BaseAction):
                 reply_type, reply_content = reply_set[0]
                 await self.send_text(reply_content)
             return False, ""
-
+        else:
+            logger.info(f"{user_id}拥有{self.action_name}权限")
         topic = self.action_data.get("topic", "")
+        logger.info(f"说说主题:{topic}")
         models = llm_api.get_available_models()
         text_model = self.get_config("models.text_model", "replyer_1")
-        model_config = getattr(models, text_model, None)
+        model_config = models[text_model]
 
         if not model_config:
             return False, "未配置LLM模型"
@@ -1247,7 +1171,7 @@ class SendFeedAction(BaseAction):
         logger.info(f"成功发送说说: {story}")
         await self.send_text('我发了一条说说啦~')
         # 生成回复
-        success, reply_set = await generator_api.generate_reply(
+        success, reply_set, prompt_ = await generator_api.generate_reply(
             chat_stream=self.chat_stream,
             action_data={"extra_info_block": f'你刚刚发了一条说说，内容为{story}'}
         )
@@ -1301,10 +1225,20 @@ class ReadFeedAction(BaseAction):
         #检查权限
         user_name = self.action_data.get("user_name", "")
         person_id = person_api.get_person_id_by_name(user_name)
+        if not person_id:
+            logger.error(f"未找到用户 {user_name} 的person_id")
+            success, reply_set, prompt_ = await generator_api.generate_reply(
+                chat_stream=self.chat_stream,
+                action_data={"extra_info_block": f'你不认识{user_name}，无法阅读他的说说，请用符合你人格特点的方式拒绝请求' }
+            )
+            if success and reply_set:
+                reply_type, reply_content = reply_set[0]
+                await self.send_text(reply_content)
+            return False, "未找到用户的person_id"
         user_id = await person_api.get_person_value(person_id, "user_id")
         if not self.check_permission(user_id):  # 若权限不足
             logger.info(f"{user_id}无{self.action_name}权限")
-            success, reply_set = await generator_api.generate_reply(
+            success, reply_set, prompt_ = await generator_api.generate_reply(
                 chat_stream=self.chat_stream,
                 action_data={"extra_info_block": f'{user_name}无权命令你阅读说说，请用符合人格的方式进行拒绝的回复'}
             )
@@ -1312,6 +1246,8 @@ class ReadFeedAction(BaseAction):
                 reply_type, reply_content = reply_set[0]
                 await self.send_text(reply_content)
             return False, ""
+        else:
+            logger.info(f"{user_id}拥有{self.action_name}权限")
 
         target_name = self.action_data.get("target_name", "")
 
@@ -1339,7 +1275,7 @@ class ReadFeedAction(BaseAction):
         #模型配置
         models = llm_api.get_available_models()
         text_model = self.get_config("models.text_model", "replyer_1")
-        model_config = getattr(models, text_model, None)
+        model_config = models[text_model]
         if not model_config:
             return False, "未配置LLM模型"
 
@@ -1347,7 +1283,7 @@ class ReadFeedAction(BaseAction):
         bot_expression = config_api.get_global_config("expression.expression_style", "内容积极向上")
         #错误处理，如对方设置了访问权限
         if 'error' in feeds_list[0]:
-            success, reply_set = await generator_api.generate_reply(
+            success, reply_set, prompt_ = await generator_api.generate_reply(
                 chat_stream=self.chat_stream,
                 action_data={"extra_info_block": f'你在读取说说的时候出现了错误，错误原因：{feeds_list[0].get("error")}'}
             )
@@ -1411,7 +1347,7 @@ class ReadFeedAction(BaseAction):
                 logger.info(f"点赞说说'{content[:10]}..'成功")
 
         # 生成回复
-        success, reply_set = await generator_api.generate_reply(
+        success, reply_set, prompt_ = await generator_api.generate_reply(
             chat_stream=self.chat_stream,
             action_data={"extra_info_block": f'你刚刚成功读了以下说说：{feeds_list}，请告知你已经读了说说，生成回复'}
         )
@@ -1485,7 +1421,7 @@ class FeedMonitor:
         #模型配置
         models = llm_api.get_available_models()
         text_model = self.plugin.get_config("models.text_model", "replyer_1")
-        model_config = getattr(models, text_model, None)
+        model_config = models[text_model]
         if not model_config:
             return False, "未配置LLM模型"
 
@@ -1676,7 +1612,7 @@ class ScheduleSender:
         """发送定时说说"""
         models = llm_api.get_available_models()
         text_model = self.plugin.get_config("models.text_model", "replyer_1")
-        model_config = getattr(models, text_model, None)
+        model_config = models[text_model]
         if not model_config:
             logger.error("未配置LLM模型")
             return
@@ -1692,7 +1628,9 @@ class ScheduleSender:
         port = self.plugin.get_config("plugin.http_port", "9999")
         image_dir = self.plugin.get_config("send.image_directory", "./images")
         enable_image = self.plugin.get_config("send.enable_image", True)
-
+        image_num = self.plugin.get_config("send.ai_image_number", 1)
+        enable_ai_image = self.plugin.get_config("send.enable_ai_image", False)
+        apikey = self.plugin.get_config("models.siliconflow_apikey", "")
         # 更新cookies
         try:
             await renew_cookies(port)
@@ -1735,6 +1673,11 @@ class ScheduleSender:
 
         logger.info(f"定时任务生成说说内容：'{story}'")
 
+        if enable_ai_image and apikey:
+            await generate_image_by_sf(api_key=apikey, story=story, image_dir=image_dir, batch_size=image_num)
+        elif enable_ai_image and not apikey:
+            logger.error('请填写apikey')
+
         # 发送说说
         success = await send_feed(story, image_dir, qq_account, enable_image)
         if success:
@@ -1750,11 +1693,12 @@ class MaizonePlugin(BasePlugin):
 
     plugin_name = "Maizone"
     plugin_description = "让麦麦实现QQ空间点赞、评论、发说说"
-    plugin_version = "1.2.1"
+    plugin_version = "1.2.2"
     plugin_author = "internetsb"
     enable_plugin = False
     config_file_name = "config.toml"
-
+    dependencies = []
+    python_dependencies = ['httpx', 'requests', 'bs4', 'json5']
     config_section_descriptions = {
         "plugin": "插件启用配置",
         "models": "插件模型配置",
@@ -1768,7 +1712,6 @@ class MaizonePlugin(BasePlugin):
         "plugin": {
             "enable": ConfigField(type=bool, default=True, description="是否启用插件"),
             "http_port": ConfigField(type=str, default='9999', description="Napcat设定http服务器端口号"),
-            "cookie_directory": ConfigField(type=str, default='./plugins/Maizone', description="生成cookie的目录"),
         },
         "models": {
             "text_model": ConfigField(type=str, default="replyer_1", description="生成文本的模型（从全局变量读取）"),
@@ -1798,7 +1741,7 @@ class MaizonePlugin(BasePlugin):
             "enable_auto_monitor": ConfigField(type=bool, default=False,
                                                description="是否启用刷空间（自动阅读所有好友说说）"),
             "enable_auto_reply": ConfigField(type=bool, default=False,
-                                             description="是否启用自动回复自己说说的评论（当enable_auto_monitor为True）"),
+                                             description="是否启用自动回复自己说说的评论（当enable_auto_monitor为True）（警告：谨慎开启此项）"),
             "interval_minutes": ConfigField(type=int, default=5, description="阅读间隔(分钟)"),
         },
         "schedule": {
