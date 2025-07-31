@@ -1,7 +1,7 @@
 # Maizone（麦麦空间） 插件
 
 原作者：internetsb，
-原仓库：https://github.com/internetsb/Maizone
+原仓库：https://github.com/internetsb/Maizone  
 改编者：xun
 
 ## 概述
