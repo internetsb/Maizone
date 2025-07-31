@@ -1672,9 +1672,9 @@ class ScheduleSender:
         image_dir = self.plugin.get_config("send.image_directory", "./images")
         enable_image = self.plugin.get_config("send.enable_image", True)
         apikey = self.plugin.get_config("models.siliconflow_apikey", "")
-        image_mode = self.get_config("send.image_mode", "random").lower()
-        ai_probability = self.get_config("send.ai_probability", 0.5)
-        image_number = self.get_config("send.image_number", 1)
+        image_mode = self.plugin.get_config("send.image_mode", "random").lower()
+        ai_probability = self.plugin.get_config("send.ai_probability", 0.5)
+        image_number = self.plugin.get_config("send.image_number", 1)
         # 更新cookies
         try:
             await renew_cookies(port)
