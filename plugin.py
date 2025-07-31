@@ -49,22 +49,43 @@ def extract_uin_from_cookie(cookie_str: str) -> str:
 
 
 async def fetch_cookies(domain: str, port: str) -> dict:
-    """获取cookie"""
+    """获取cookie
+    Args:
+        domain: 域名
+        port: Napcat服务端口
+    Returns:
+        dict: 包含cookies的字典
+    Raises:
+        RuntimeError: 当获取cookie失败或无法连接Napcat服务时抛出
+    """
     url = f"ws://127.0.0.1:{port}/get_cookies?domain={domain}"
-    try:
-        async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            data = resp.json()
-            if data.get("status") != "ok" or "cookies" not in data.get("data", {}):
-                raise RuntimeError(f"获取 cookie 失败: {data}")
-            return data["data"]
-    except httpx.RequestError as e:
-        logger.error(f"无法连接到Napcat服务: {url}，错误: {str(e)}")
-        raise RuntimeError(f"无法连接到Napcat服务: {url}")
-    except Exception as e:
-        logger.error(f"获取cookie异常: {str(e)}")
-        raise
+    max_retries = 5
+    retry_delay = 1  # 初始重试延迟时间(秒)
+    
+    for attempt in range(max_retries):
+        try:
+            async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
+                resp = await client.get(url)
+                resp.raise_for_status()
+                data = resp.json()
+                if data.get("status") != "ok" or "cookies" not in data.get("data", {}):
+                    raise RuntimeError(f"获取 cookie 失败: {data}")
+                return data["data"]
+                
+        except httpx.RequestError as e:
+            if attempt < max_retries - 1:  # 不是最后一次尝试
+                logger.warning(f"无法连接到Napcat服务(尝试 {attempt + 1}/{max_retries}): {url}，错误: {str(e)}")
+                await asyncio.sleep(retry_delay)
+                retry_delay *= 2
+                continue
+            logger.error(f"无法连接到Napcat服务(最终尝试): {url}，错误: {str(e)}")
+            raise RuntimeError(f"无法连接到Napcat服务: {url}")
+            
+        except Exception as e:
+            logger.error(f"获取cookie异常: {str(e)}")
+            raise
+            
+    raise RuntimeError(f"无法连接到Napcat服务: 超过最大重试次数({max_retries})")
 
 
 async def renew_cookies(port: str):
@@ -484,7 +505,7 @@ class QzoneAPI:
                         created_time = time.strftime('%Y-%m-%d %H:%M:%S', time_tuple)
                     tid = msg.get("tid", "")
                     content = msg.get("content", "")
-                    logger.info(f"正在阅读说说内容: {content[:20]}")
+                    logger.info(f"正在阅读说说内容: {content[:30]}...")
                     # 提取图片信息
                     images = []
                     if 'pic' in msg:
@@ -734,44 +755,67 @@ def get_qzone_api(qq_account: str) -> QzoneAPI | None:
         return None
 
 
-async def send_feed(message: str, image_directory: str, qq_account: str, enable_image: bool):
+async def send_feed(message: str, image_directory: str, qq_account: str, enable_image: bool, image_mode: str, ai_probability: float, image_number: int, apikey: str) -> bool:
     """发送说说及图片"""
     qzone = get_qzone_api(qq_account)
 
     images = []
-    if os.path.exists(image_directory) and enable_image:
-        # 获取目录下所有文件
-        all_files = [f for f in os.listdir(image_directory)
-                     if os.path.isfile(os.path.join(image_directory, f))]
+    if not enable_image:
+        # 如果未启用图片功能，直接发送纯文本
+        return await qzone.publish_emotion(message, images)
+    
+    # 验证配置有效性
+    if image_mode not in ["only_ai", "only_emoji", "random"]:
+        image_mode = "random"
+    ai_probability = max(0.0, min(1.0, ai_probability))  # 限制在0-1之间
+    image_number = max(1, min(4, image_number))  # 限制在1-4之间
 
-        # 筛选未处理的图片（不以"done_"开头的文件）
-        unprocessed_files = [f for f in all_files if not f.startswith("done_")]
-        unprocessed_files_sorted = sorted(unprocessed_files)
+    # 决定图片来源
+    use_ai = False
+    if image_mode == "only_ai":
+        use_ai = True
+    elif image_mode == "only_emoji":
+        use_ai = False
+    else:  # random模式
+        use_ai = random.random() < ai_probability
 
-        for image_file in unprocessed_files_sorted:
-            full_path = os.path.join(image_directory, image_file)
-            with open(full_path, "rb") as img:
-                images.append(img.read())
-
-            # 生成带时间戳的前缀 (格式: done_YYYYMMDD_HHMMSS_)
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            new_filename = f"done_{timestamp}_{image_file}"
-            new_path = os.path.join(image_directory, new_filename)
-            os.rename(full_path, new_path)
-
-    if not images and enable_image:
-        image = await emoji_api.get_by_description(message)
-        if image:
-            image_base64, description, scene = image
-            image_data = base64.b64decode(image_base64)
-            images.append(image_data)
+    # 获取图片
+    if use_ai:
+        # 使用AI生成图片
+        if apikey:
+            ai_success = await generate_image_by_sf(
+                api_key=apikey, 
+                story=message, 
+                image_dir=image_directory,
+                batch_size=image_number
+            )
+            if ai_success:
+                # 获取最新生成的AI图片
+                ai_files = [f for f in os.listdir(image_directory) 
+                           if f.startswith("sf_") and f.endswith(".png")]
+                if ai_files:
+                    # 按创建时间排序，取最新的
+                    ai_files.sort(key=lambda f: os.path.getctime(os.path.join(image_directory, f)))
+                    selected_ai = ai_files[-image_number:]
+                    for ai_file in selected_ai:
+                        full_path = os.path.join(image_directory, ai_file)
+                        with open(full_path, "rb") as img:
+                            images.append(img.read())
+    else:
+        # 使用表情包
+        for _ in range(image_number):
+            image = await emoji_api.get_by_description(message)
+            if image:
+                image_base64, description, scene = image
+                image_data = base64.b64decode(image_base64)
+                images.append(image_data)
 
     try:
         tid = await qzone.publish_emotion(message, images)
-        logger.info(f"成功发送， tid: {tid}")
+        logger.info(f"成功发送说说，tid: {tid}")
         return True
     except Exception as e:
-        logger.error("发送失败")
+        logger.error("发送说说失败")
         logger.error(traceback.format_exc())
         return False
 
@@ -985,9 +1029,10 @@ class SendFeedCommand(BaseCommand):
         qq_account = config_api.get_global_config("bot.qq_account", "")
         port = self.get_config("plugin.http_port", "9999")
         image_dir = self.get_config("send.image_directory", "./images")
-        image_num = self.get_config("send.ai_image_number", 1)
-        enable_ai_image = self.get_config("send.enable_ai_image", False)
         apikey = self.get_config("models.siliconflow_apikey", "")
+        image_mode = self.get_config("send.image_mode", "random").lower()
+        ai_probability = self.get_config("send.ai_probability", 0.5)
+        image_number = self.get_config("send.image_number", 1)
 
         # 更新cookies
         try:
@@ -1028,14 +1073,12 @@ class SendFeedCommand(BaseCommand):
 
         logger.info(f"成功生成说说内容：'{story}'")
 
-        if enable_ai_image and apikey:
-            await generate_image_by_sf(api_key=apikey, story=story, image_dir=image_dir, batch_size=image_num)
-        elif enable_ai_image and not apikey:
+        if image_mode != "only_emoji" and not apikey:
             logger.error('请填写apikey')
 
         # 发送说说
         enable_image = self.get_config("send.enable_image", "true")
-        success = await send_feed(story, image_dir, qq_account, enable_image)
+        success = await send_feed(story, image_dir, qq_account, enable_image, image_mode, ai_probability, image_number, apikey)
         if not success:
             return False, "发送说说失败", True
         await self.send_text(f"已发送说说：\n{story}")
@@ -1121,9 +1164,11 @@ class SendFeedAction(BaseAction):
 
         port = self.get_config("plugin.http_port", "9999")
         image_dir = self.get_config("send.image_directory", "./images")
-        image_num = self.get_config("send.ai_image_number", 1)
-        enable_ai_image = self.get_config("send.enable_ai_image", False)
+
         apikey = self.get_config("models.siliconflow_apikey", "")
+        image_mode = self.get_config("send.image_mode", "random").lower()
+        ai_probability = self.get_config("send.ai_probability", 0.5)
+        image_number = self.get_config("send.image_number", 1)
         try:
             await renew_cookies(port)
         except Exception as e:
@@ -1151,9 +1196,7 @@ class SendFeedAction(BaseAction):
             return False, "生成说说内容失败"
 
         logger.info(f"生成说说内容：'{story}'，即将发送")
-        if enable_ai_image and apikey:
-            await generate_image_by_sf(api_key=apikey, story=story, image_dir=image_dir, batch_size=image_num)
-        elif enable_ai_image and not apikey:
+        if image_mode != "only_emoji" and not apikey:
             logger.error('请填写apikey')
 
         # 更新cookies
@@ -1165,7 +1208,7 @@ class SendFeedAction(BaseAction):
 
         # 发送说说
         enable_image = self.get_config("send.enable_image", "true")
-        success = await send_feed(story, image_dir, qq_account, enable_image)
+        success = await send_feed(story, image_dir, qq_account, enable_image, image_mode, ai_probability, image_number, apikey)
         if not success:
             return False, "发送说说失败"
         logger.info(f"成功发送说说: {story}")
@@ -1319,7 +1362,7 @@ class ReadFeedAction(BaseAction):
                     你想要发表你的一条评论，{bot_expression}，回复的平淡一些，简短一些，说中文，
                     不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。只输出回复内容
                     """
-                logger.info(f"正在评论'{target_name}'的说说：{content[:20]}...")
+                logger.info(f"正在评论'{target_name}'的说说：{content}...")
                 success, comment, reasoning, model_name = await llm_api.generate_with_model(
                     prompt=prompt,
                     model_config=model_config,
@@ -1523,7 +1566,7 @@ class FeedMonitor:
                     你想要发表你的一条评论，{bot_expression}，回复的平淡一些，简短一些，说中文，
                     不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。只输出回复内容
                     """
-                logger.info(f"正在评论'{target_qq}'的说说：{content[:20]}...")
+                logger.info(f"正在评论'{target_qq}'的说说：{content[:30]}...")
                 success, comment, reasoning, model_name = await llm_api.generate_with_model(
                     prompt=prompt,
                     model_config=model_config,
@@ -1628,9 +1671,10 @@ class ScheduleSender:
         port = self.plugin.get_config("plugin.http_port", "9999")
         image_dir = self.plugin.get_config("send.image_directory", "./images")
         enable_image = self.plugin.get_config("send.enable_image", True)
-        image_num = self.plugin.get_config("send.ai_image_number", 1)
-        enable_ai_image = self.plugin.get_config("send.enable_ai_image", False)
         apikey = self.plugin.get_config("models.siliconflow_apikey", "")
+        image_mode = self.get_config("send.image_mode", "random").lower()
+        ai_probability = self.get_config("send.ai_probability", 0.5)
+        image_number = self.get_config("send.image_number", 1)
         # 更新cookies
         try:
             await renew_cookies(port)
@@ -1673,13 +1717,11 @@ class ScheduleSender:
 
         logger.info(f"定时任务生成说说内容：'{story}'")
 
-        if enable_ai_image and apikey:
-            await generate_image_by_sf(api_key=apikey, story=story, image_dir=image_dir, batch_size=image_num)
-        elif enable_ai_image and not apikey:
+        if image_mode != "only_emoji" and not apikey:
             logger.error('请填写apikey')
 
         # 发送说说
-        success = await send_feed(story, image_dir, qq_account, enable_image)
+        success = await send_feed(story, image_dir, qq_account, enable_image, image_mode, ai_probability, image_number, apikey)
         if success:
             logger.info(f"定时任务成功发送说说: {story}")
         else:
@@ -1695,7 +1737,7 @@ class MaizonePlugin(BasePlugin):
     plugin_description = "让麦麦实现QQ空间点赞、评论、发说说"
     plugin_version = "1.2.2"
     plugin_author = "internetsb"
-    enable_plugin = False
+    enable_plugin = True
     config_file_name = "config.toml"
     dependencies = []
     python_dependencies = ['httpx', 'requests', 'bs4', 'json5']
@@ -1719,14 +1761,19 @@ class MaizonePlugin(BasePlugin):
         },
         "send": {
             "permission": ConfigField(type=list, default=['114514', '1919810', ],
-                                      description="权限QQ号列表（请以相同格式添加）"),
+                                    description="权限QQ号列表（请以相同格式添加）"),
             "permission_type": ConfigField(type=str, default='whitelist',
-                                           description="whitelist:在列表中的QQ号有权限，blacklist:在列表中的QQ号无权限"),
+                                        description="whitelist:在列表中的QQ号有权限，blacklist:在列表中的QQ号无权限"),
             "enable_image": ConfigField(type=bool, default=False,
-                                        description="是否启用带图片的说说（禁用Ai生图将从已注册表情包中获取）"),
-            "enable_ai_image": ConfigField(type=bool, default=False, description="是否启用Ai生成带图片的说说"),
-            "ai_image_number": ConfigField(type=int, default=1, description="一次生成几张图片(范围1至4)"),
-            "image_directory": ConfigField(type=str, default="./plugins/Maizone/images", description="图片存储目录")
+                                        description="是否启用带图片的说说"),
+            "image_mode": ConfigField(type=str, default='random',
+                                    description="图片使用方式: only_ai(仅AI生成)/only_emoji(仅表情包)/random(随机混合)"),
+            "ai_probability": ConfigField(type=float, default=0.4,
+                                        description="random模式下使用AI图片的概率(0-1)"),
+            "image_number": ConfigField(type=int, default=1, 
+                                    description="使用的图片数量(范围1至4)"),
+            "image_directory": ConfigField(type=str, default="./plugins/Maizone/images", 
+                                        description="图片存储目录")
         },
         "read": {
             "permission": ConfigField(type=list, default=['114514', '1919810', ],
@@ -1738,11 +1785,11 @@ class MaizonePlugin(BasePlugin):
             "comment_possibility": ConfigField(type=float, default=1.0, description="麦麦读说说后评论的概率（0到1）"),
         },
         "monitor": {
-            "enable_auto_monitor": ConfigField(type=bool, default=False,
+            "enable_auto_monitor": ConfigField(type=bool, default=True,
                                                description="是否启用刷空间（自动阅读所有好友说说）"),
             "enable_auto_reply": ConfigField(type=bool, default=False,
                                              description="是否启用自动回复自己说说的评论（当enable_auto_monitor为True）（警告：谨慎开启此项）"),
-            "interval_minutes": ConfigField(type=int, default=5, description="阅读间隔(分钟)"),
+            "interval_minutes": ConfigField(type=int, default=15, description="阅读间隔(分钟)"),
         },
         "schedule": {
             "enable_schedule": ConfigField(type=bool, default=False, description="是否启用定时发送说说"),
