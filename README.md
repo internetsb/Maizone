@@ -2,7 +2,8 @@
 
 原作者：internetsb，
 原仓库：https://github.com/internetsb/Maizone  
-改编者：xun
+改编者：xun  
+改了点配置的默认值和配置(方便了自己用)和添加重试机制，将ai绘图和是否添加图片合并到了send_feed中(编码水平稀烂不会从原本的改)  
 
 ## 概述
 Maizone（麦麦空间）插件v1.2.2，让你的麦麦发说说，读QQ空间，点赞评论！
