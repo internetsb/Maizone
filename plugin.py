@@ -59,7 +59,7 @@ async def fetch_cookies(domain: str, port: str) -> dict:
         RuntimeError: 当获取cookie失败或无法连接Napcat服务时抛出
     """
     url = f"ws://127.0.0.1:{port}/get_cookies?domain={domain}"
-    max_retries = 5
+    max_retries = 5  # 最大重试次数
     retry_delay = 1  # 初始重试延迟时间(秒)
     
     for attempt in range(max_retries):
