@@ -1345,7 +1345,7 @@ class ReadFeedAction(BaseAction):
                 for image in feed["images"]:
                     content = content + image
             fid = feed["tid"]
-            rt_con = feed["rt_con"]
+            rt_con = feed.get("rt_con", "")
             if random.random() <= comment_possibility:
                 #评论说说
                 if not rt_con:
@@ -1497,7 +1497,7 @@ class FeedMonitor:
                         content = content + image
                 fid = feed["tid"]
                 target_qq = feed["target_qq"]
-                rt_con = feed["rt_con"]
+                rt_con = feed.get("rt_con", "")
                 comments_list = feed["comments"]
                 # 检查自己的说说评论并回复
                 if target_qq == qq_account:
