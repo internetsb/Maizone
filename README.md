@@ -1,12 +1,9 @@
 # Maizone（麦麦空间） 插件
 
-原作者：internetsb，
-原仓库：https://github.com/internetsb/Maizone  
-改编者：xun  
-改了点配置的默认值和配置(方便了自己用)和添加重试机制，将ai绘图和是否添加图片合并到了send_feed中(编码水平稀烂不会从原本的改)  
+<u>制作者水平稀烂，任何bug或建议请联系qq：1523640161</u>
 
 ## 概述
-Maizone（麦麦空间）插件v1.2.2，让你的麦麦发说说，读QQ空间，点赞评论！
+Maizone（麦麦空间）插件v1.3.0，让你的麦麦发说说，读QQ空间，点赞评论！
 
 ## 功能
 - **发说说**: 当用户说"说说"、"qq空间"、"动态"时麦麦会决定是否发说说和说说的主题
@@ -24,7 +21,7 @@ Maizone（麦麦空间）插件v1.2.2，让你的麦麦发说说，读QQ空间�
 ## 使用方法
 ### 安装插件
 
-1. 下载或克隆本仓库（麦麦0.8版本可在release中下载旧版，请前往原作者仓库）
+1. 下载或克隆本仓库（麦麦0.8版本可在release中下载旧版）
 
 2. 将`Maizone\`文件夹放入`MaiBot\plugins`文件夹下
 
@@ -37,7 +34,7 @@ Maizone（麦麦空间）插件v1.2.2，让你的麦麦发说说，读QQ空间�
    pip install -i https://mirrors.aliyun.com/pypi/simple -r .\requirements.txt --upgrade
    ```
 
-   
+   <u>一键包用户可在启动时安装MaiBot\plugins\Maizone\requirements.txt</u>中的依赖
 
 4. 启动一次以生成`config.toml`配置文件
 
@@ -48,7 +45,7 @@ Maizone（麦麦空间）插件v1.2.2，让你的麦麦发说说，读QQ空间�
 ![](napcat2.png)
 
 启用后在配置文件config.toml（若无则先启动一次）中填写上在napcat中设置的端口号（默认9999）
-当连接失败时会进行5次重试，若要更改此次数在plugin.py的62行max_retries
+
 ### 修改配置文件
 请设置：
 1. 是否启用插件、自动阅读功能、定时发送功能
@@ -68,7 +65,8 @@ Maizone（麦麦空间）插件v1.2.2，让你的麦麦发说说，读QQ空间�
 
 **定时发说说**：在config.toml中schedule开启，麦麦会定时发送说说
 
-## 参考
+## 鸣谢
 
 部分代码来自仓库：https://github.com/gfhdhytghd/qzone-toolkit
 
+感谢[xc94188](https://github.com/xc94188)提供的功能改进
