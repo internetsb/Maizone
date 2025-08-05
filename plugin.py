@@ -1525,12 +1525,12 @@ class SendFeedAction(BaseAction):
         user_name = self.action_data.get("user_name", "")
         person_id = person_api.get_person_id_by_name(user_name)
         show_prompt = self.get_config("models.show_prompt", False)
-        if not person_id:
+        if not person_id or person_id == "unknown":
             logger.error(f"未找到用户 {user_name} 的person_id")
             success, reply_set, prompt_ = await generator_api.generate_reply(
                 chat_stream=self.chat_stream,
                 action_data={
-                    "extra_info_block": f'你不认识{user_name}，无法阅读他的说说，请用符合你人格特点的方式拒绝请求'}
+                    "extra_info_block": f'你不认识{user_name}，请用符合你人格特点的方式拒绝请求'}
             )
 
             if success and reply_set:
@@ -1681,7 +1681,7 @@ class ReadFeedAction(BaseAction):
         user_name = self.action_data.get("user_name", "")
         person_id = person_api.get_person_id_by_name(user_name)
         show_prompt = self.get_config("models.show_prompt", False)
-        if not person_id:
+        if not person_id or person_id == "unknown":
             logger.error(f"未找到用户 {user_name} 的person_id")
             success, reply_set, prompt_ = await generator_api.generate_reply(
                 chat_stream=self.chat_stream,
