@@ -895,7 +895,7 @@ async def generate_image_by_sf(api_key: str, story: str, image_dir: str, batch_s
     if not model_config:
         logger.error('配置模型失败')
         return False
-    image_prompt = f"""
+    prompt = f"""
         请根据以下QQ空间说说内容配图，并构建生成配图的风格和prompt。
         说说主人信息：'{bot_personality},{str(bot_details)}'。
         说说内容:'{story}'。 
@@ -904,7 +904,7 @@ async def generate_image_by_sf(api_key: str, story: str, image_dir: str, batch_s
         """
     
     success, image_prompt, reasoning, model_name = await llm_api.generate_with_model(
-        prompt=image_prompt,
+        prompt=prompt,
         model_config=model_config,
         request_type="story.generate",
         temperature=0.3,
