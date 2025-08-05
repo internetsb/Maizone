@@ -1157,6 +1157,7 @@ class SendFeedCommand(BaseCommand):
         - 符合实际
         - 长度30-120字
         """
+
         show_prompt = self.get_config("models.show_prompt", False)
         if show_prompt:
             logger.info(f"生成说说prompt内容：{prompt}")
@@ -1360,6 +1361,7 @@ class SendFeedAction(BaseAction):
         - 符合实际
         - 长度30-120字
         """
+        
         show_prompt = self.get_config("models.show_prompt", False)
         if show_prompt:
             logger.info(f"生成说说prompt内容：{prompt}")
@@ -1978,11 +1980,10 @@ class ScheduleSender:
         - 符合实际
         - 长度30-120字
         """
+
         show_prompt = self.get_config("models.show_prompt", False)
         if show_prompt:
             logger.info(f"生成说说prompt内容：{prompt}")
-
-
 
         success, story, reasoning, model_name = await llm_api.generate_with_model(
             prompt=prompt,
