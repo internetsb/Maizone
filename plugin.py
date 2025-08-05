@@ -895,7 +895,7 @@ async def generate_image_by_sf(api_key: str, story: str, image_dir: str, batch_s
     if not model_config:
         logger.error('配置模型失败')
         return False
-    prompt = f"""
+    image_prompt = f"""
         请根据以下QQ空间说说内容配图，并构建生成配图的风格和prompt。
         说说主人信息：'{bot_personality},{str(bot_details)}'。
         说说内容:'{story}'。 
@@ -903,8 +903,8 @@ async def generate_image_by_sf(api_key: str, story: str, image_dir: str, batch_s
         画风不要AI化，可以像蔚蓝档案中人物的画风
         """
     
-    success, prompt, reasoning, model_name = await llm_api.generate_with_model(
-        prompt=prompt,
+    success, image_prompt, reasoning, model_name = await llm_api.generate_with_model(
+        prompt=image_prompt,
         model_config=model_config,
         request_type="story.generate",
         temperature=0.3,
@@ -1157,7 +1157,9 @@ class SendFeedCommand(BaseCommand):
         - 符合实际
         - 长度30-120字
         """
-        logger.info(f"配文生成prompt：'{prompt}'")
+        show_prompt = self.get_config("models.show_prompt", False)
+        if show_prompt:
+            logger.info(f"生成说说prompt内容：{prompt}")
 
         success, story, reasoning, model_name = await llm_api.generate_with_model(
             prompt=prompt,
@@ -1358,7 +1360,9 @@ class SendFeedAction(BaseAction):
         - 符合实际
         - 长度30-120字
         """
-        logger.info(f"配文生成prompt：'{prompt}'")
+        show_prompt = self.get_config("models.show_prompt", False)
+        if show_prompt:
+            logger.info(f"生成说说prompt内容：{prompt}")
 
         success, story, reasoning, model_name = await llm_api.generate_with_model(
             prompt=prompt,
@@ -1974,7 +1978,9 @@ class ScheduleSender:
         - 符合实际
         - 长度30-120字
         """
-        logger.info(f"配文生成prompt：'{prompt}'")
+        show_prompt = self.get_config("models.show_prompt", False)
+        if show_prompt:
+            logger.info(f"生成说说prompt内容：{prompt}")
 
 
 
