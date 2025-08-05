@@ -87,7 +87,7 @@ async def fetch_cookies(domain: str, port: str, napcat_token: str = "") -> dict:
     Raises:
         RuntimeError: 当获取cookie失败或无法连接Napcat服务时抛出
     """
-    url = f"http://127.0.0.1:{port}/get_cookies?domain={domain}"
+    url = f"ws://127.0.0.1:{port}/get_cookies?domain={domain}"
     max_retries = 5  # 最大重试次数
     retry_delay = 1  # 初始重试延迟时间(秒)
 
@@ -1493,6 +1493,7 @@ class SendFeedCommand(BaseCommand):
             '冬': '温暖瞬间'
         }
         # 生成prompt
+        history = await get_send_history(qq_account)
         if topic:
             prompt = f"""
             当前时间：{datetime.datetime.now().strftime('%Y年%m月%d日 %H:%M')} {weekdays[datetime.datetime.now().weekday()]}
@@ -1535,11 +1536,10 @@ class SendFeedCommand(BaseCommand):
             - 保持随意自然的口吻
             """
 
+        prompt += f"\n以下是你以前发过的说说，写新说说时注意不要在相隔不长的时间发送相同主题的说说（避免重复或高度相似，如多送了什么之类的生成次数已经较多了）：\n"
+        prompt += history
         prompt += f"""
-        \n以下是你以前发过的说说，写新说说时注意不要在相隔不长的时间发送相同主题的说说（避免重复或高度相似，如多送了什么之类的生成次数已经较多了）：
-        {await get_send_history(qq_account)}
-
-        输出要求：
+        \n输出要求：
         - 纯文本内容
         - 无前缀/后缀
         - 无文字模拟的表情包
@@ -1726,6 +1726,7 @@ class SendFeedAction(BaseAction):
             '冬': '温暖瞬间'
         }
         # 生成prompt
+        history = await get_send_history(qq_account)
         prompt = f"""
         当前时间：{datetime.datetime.now().strftime('%Y年%m月%d日 %H:%M')} {weekdays[datetime.datetime.now().weekday()]}
         季节：{current_season}季
@@ -1748,11 +1749,10 @@ class SendFeedAction(BaseAction):
         - 模板化表达
         - 特殊符号
         """
+        prompt += f"\n以下是你以前发过的说说，写新说说时注意不要在相隔不长的时间发送相同主题的说说（避免重复或高度相似，如多送了什么之类的生成次数已经较多了）：\n"
+        prompt += history
         prompt += f"""
-        \n以下是你以前发过的说说，写新说说时注意不要在相隔不长的时间发送相同主题的说说（避免重复或高度相似，如多送了什么之类的生成次数已经较多了）：
-        {await get_send_history(qq_account)}
-
-        输出要求：
+        \n输出要求：
         - 纯文本内容
         - 无前缀/后缀
         - 无文字模拟的表情包
@@ -2345,6 +2345,7 @@ class ScheduleSender:
             '冬': '温暖瞬间'
         }
         # 生成prompt
+        history = await get_send_history(qq_account)
         if random_topic:
             prompt = f"""
             当前时间：{datetime.datetime.now().strftime('%m月%d日 %H:%M')} {weekdays[datetime.datetime.now().weekday()]}
@@ -2388,11 +2389,10 @@ class ScheduleSender:
             - 特殊符号
             """
 
+        prompt += f"\n以下是你以前发过的说说，写新说说时注意不要在相隔不长的时间发送相同主题的说说（避免重复或高度相似，如多送了什么之类的生成次数已经较多了）：\n"
+        prompt += history
         prompt += f"""
-        \n以下是你以前发过的说说，写新说说时注意不要在相隔不长的时间发送相同主题的说说（避免重复或高度相似，如多送了什么之类的生成次数已经较多了）：
-        {await get_send_history(qq_account)}
-
-        输出要求：
+        \n输出要求：
         - 纯文本内容
         - 无前缀/后缀
         - 无文字模拟的表情包
