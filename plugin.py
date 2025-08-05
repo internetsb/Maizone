@@ -901,6 +901,7 @@ async def generate_image_by_sf(api_key: str, story: str, image_dir: str, batch_s
         说说主人信息：'{bot_personality},{str(bot_details)}'。
         说说内容:'{story}'。 
         请注意：仅回复用于生成图片的prompt，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )
+        画风不要AI化，可以像蔚蓝档案中人物的画风
         """,
         model_config=model_config,
         request_type="story.generate",
@@ -1041,24 +1042,119 @@ class SendFeedCommand(BaseCommand):
             logger.error(f"更新cookies失败: {str(e)}")
             return False, "更新cookies失败", True
 
+        # if topic:
+        #     prompt = f"""
+        #     你是'{bot_personality}'，你想写一条主题是'{topic}'的说说发表在qq空间上，
+        #     {bot_expression}
+        #     不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，可以适当使用颜文字，
+        #     只输出一条说说正文的内容，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )
+        #     """
+        # else:
+        #     prompt = f"""
+        #     你是'{bot_personality}'，你想写一条说说发表在qq空间上，主题不限
+        #     {bot_expression}
+        #     不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，可以适当使用颜文字，
+        #     只输出一条说说正文的内容，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )
+        #     """
+
+        # prompt += "\n以下是你以前发过的说说，写新说说时注意不要在相隔不长的时间发送相同主题的说说"
+        # prompt += await get_send_history(qq_account)
+        # prompt += "\n不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )"
+        # 星期定义
+        weekdays = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日']
+        
+        # 季节定义
+        seasons = ['冬', '冬', '春', '春', '春', '夏', '夏', '夏', '秋', '秋', '秋', '冬']
+        current_month = datetime.datetime.now().month - 1
+        current_season = seasons[current_month]
+        
+        # 时间段定义
+        hour_segments = ['深夜', '深夜', '深夜', '凌晨', '早晨', '上午', '中午', '下午', '晚上', '晚上', '深夜', '深夜']
+        current_hour_segment = hour_segments[datetime.datetime.now().hour // 2]
+        
+        # 天气定义
+        weather_options = ['晴朗', '多云', '小雨', '阴天', '大风']
+        current_weather = random.choice(weather_options)
+        
+        # 季节特有事物
+        seasonal_things = {
+            '春': ['樱花', '春雨', '踏青'],
+            '夏': ['西瓜', '空调', '蝉鸣'],
+            '秋': ['落叶', '秋雨', '桂花'],
+            '冬': ['火锅', '初雪', '围巾']
+        }
+        
+        # 时间段相关活动
+        time_activities = {
+            '早晨': '早餐/通勤',
+            '上午': '工作/学习', 
+            '中午': '午餐/午休',
+            '下午': '下午茶/运动',
+            '晚上': '晚餐/追剧',
+            '深夜': '宵夜/失眠'
+        }
+
+        seasonal_special = {
+            '春': '新鲜事',
+            '夏': '清凉一刻',
+            '秋': '小确幸', 
+            '冬': '温暖瞬间'
+        }
+        # 生成prompt
         if topic:
             prompt = f"""
-            你是'{bot_personality}'，你想写一条主题是'{topic}'的说说发表在qq空间上，
+            当前时间：{datetime.datetime.now().strftime('%Y年%m月%d日 %H:%M')} {weekdays[datetime.datetime.now().weekday()]}
+            季节：{current_season}季
+            天气：{current_weather}
+
+            你作为'{bot_personality}'，想发一条关于'{topic}'的说说：
             {bot_expression}
-            不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，可以适当使用颜文字，
-            只输出一条说说正文的内容，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )
+
+            写作要求：
+            1. 自然融入当前时间/季节/天气特征
+            2. 使用口语化表达，像真人朋友圈
+            3. 可以提及：
+            - 季节特有的事物（如{seasonal_things[current_season]}）
+            - 当前时间段相关活动（如{time_activities[current_hour_segment]}）
+            4. 可适当使用1-2个颜文字(如~ ^_^)
+            5. 避免：
+            - 专业术语
+            - 夸张修辞
+            - 模板化表达
+            - 特殊符号
             """
         else:
             prompt = f"""
-            你是'{bot_personality}'，你想写一条说说发表在qq空间上，主题不限
+            当前时间：{datetime.datetime.now().strftime('%m月%d日 %H:%M')} {weekdays[datetime.datetime.now().weekday()]}
+            季节：{current_season}季
+
+            你作为'{bot_personality}'，想发一条日常说说：
             {bot_expression}
-            不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，可以适当使用颜文字，
-            只输出一条说说正文的内容，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )
+
+            构思建议：
+            - 当前天气感受：{current_weather}
+            - 季节限定事物：{seasonal_things[current_season]}
+            - 日常生活片段
+            - 近期小确幸
+            - 游戏日常
+            * 刚才发生的趣事
+            * 看到的{time_activities[current_hour_segment]}
+            * {current_season}季特有的{seasonal_special[current_season]}
+            - 保持随意自然的口吻
             """
 
-        prompt += "\n以下是你以前发过的说说，写新说说时注意不要在相隔不长的时间发送相同主题的说说"
-        prompt += await get_send_history(qq_account)
-        prompt += "\n不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )"
+        prompt += f"""
+        \n历史说说参考（避免重复或高度相似,如多送了什么之类的在此前发过很多次了）：
+        {await get_send_history(qq_account)}
+
+        输出要求：
+        - 纯文本内容
+        - 无前缀/后缀
+        - 无文字模拟的表情包
+        - 符合实际
+        - 长度30-120字
+        """
+        logger.info(f"配文生成prompt：'{prompt}'")
 
         success, story, reasoning, model_name = await llm_api.generate_with_model(
             prompt=prompt,
@@ -1175,15 +1271,79 @@ class SendFeedAction(BaseAction):
             logger.error(f"更新cookies失败: {str(e)}")
             return False, "更新cookies失败"
 
+        # prompt = f"""
+        # 你是{bot_personality}，你想写一条主题是{topic}的说说发表在qq空间上，
+        # {bot_expression}
+        # 不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，可以适当使用颜文字，
+        # 只输出一条说说正文的内容，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )
+        # """
+        # prompt += "\n以下是你以前发过的说说，写新说说时注意不要在相隔不长的时间发送相同主题的说说"
+        # prompt += await get_send_history(qq_account)
+        # prompt += "\n只输出一条说说正文的内容，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )"
+        # 星期定义
+        weekdays = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日']
+        
+        # 季节定义
+        seasons = ['冬', '冬', '春', '春', '春', '夏', '夏', '夏', '秋', '秋', '秋', '冬']
+        current_month = datetime.datetime.now().month - 1
+        current_season = seasons[current_month]
+        
+        # 时间段定义
+        hour_segments = ['深夜', '深夜', '深夜', '凌晨', '早晨', '上午', '中午', '下午', '晚上', '晚上', '深夜', '深夜']
+        current_hour_segment = hour_segments[datetime.datetime.now().hour // 2]
+        
+        # 天气定义
+        weather_options = ['晴朗', '多云', '小雨', '阴天', '大风']
+        current_weather = random.choice(weather_options)
+        
+        # 季节特有事物
+        seasonal_things = {
+            '春': ['樱花', '春雨', '踏青'],
+            '夏': ['西瓜', '空调', '蝉鸣'],
+            '秋': ['落叶', '秋雨', '桂花'],
+            '冬': ['火锅', '初雪', '围巾']
+        }
+        
+        # 时间段相关活动
+        time_activities = {
+            '早晨': '早餐/通勤',
+            '上午': '工作/学习', 
+            '中午': '午餐/午休',
+            '下午': '下午茶/运动',
+            '晚上': '晚餐/追剧',
+            '深夜': '宵夜/失眠'
+        }
+
+        seasonal_special = {
+            '春': '新鲜事',
+            '夏': '清凉一刻',
+            '秋': '小确幸', 
+            '冬': '温暖瞬间'
+        }
+        # 生成prompt
         prompt = f"""
-        你是{bot_personality}，你想写一条主题是{topic}的说说发表在qq空间上，
+        当前时间：{datetime.datetime.now().strftime('%Y年%m月%d日 %H:%M')} {weekdays[datetime.datetime.now().weekday()]}
+        季节：{current_season}季
+        天气：{current_weather}
+
+        你作为'{bot_personality}'，想发一条关于'{topic}'的说说：
         {bot_expression}
-        不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，可以适当使用颜文字，
-        只输出一条说说正文的内容，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )
+
+        写作要求：
+        1. 自然融入当前时间/季节/天气特征
+        2. 使用口语化表达，像真人朋友圈
+        3. 可以提及：
+        - 季节特有的事物（如{seasonal_things[current_season]}）
+        - 当前时间段相关活动（如{time_activities[current_hour_segment]}）
+        4. 可适当使用1-2个颜文字(如~ ^_^)
+        5. 避免：
+        - 专业术语
+        - 夸张修辞
+        - 模板化表达
+        - 特殊符号
         """
-        prompt += "\n以下是你以前发过的说说，写新说说时注意不要在相隔不长的时间发送相同主题的说说"
-        prompt += await get_send_history(qq_account)
-        prompt += "\n只输出一条说说正文的内容，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )"
+        logger.info(f"配文生成prompt：'{prompt}'")
+
         success, story, reasoning, model_name = await llm_api.generate_with_model(
             prompt=prompt,
             model_config=model_config,
@@ -1683,25 +1843,123 @@ class ScheduleSender:
             return
 
         # 生成说说内容
+        # if random_topic:
+        #     prompt = f"""
+        #     你是'{bot_personality}'，你想写一条说说发表在qq空间上，主题不限
+        #     {bot_expression}
+        #     不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，可以适当使用颜文字，
+        #     只输出一条说说正文的内容，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )
+        #     """
+        # else:
+        #     fixed_topic = random.choice(fixed_topics)
+        #     prompt = f"""
+        #     你是'{bot_personality}'，你想写一条主题是'{fixed_topic}'的说说发表在qq空间上，
+        #     {bot_expression}
+        #     不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，可以适当使用颜文字，
+        #     只输出一条说说正文的内容，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )
+        #     """
+
+        # prompt += "\n以下是你最近发过的说说，写新说说时注意不要在相隔不长的时间发送相似内容的说说\n"
+        # prompt += await get_send_history(qq_account)
+        # prompt += "\n只输出一条说说正文的内容，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )"
+        # 星期定义
+        weekdays = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日']
+        
+        # 季节定义
+        seasons = ['冬', '冬', '春', '春', '春', '夏', '夏', '夏', '秋', '秋', '秋', '冬']
+        current_month = datetime.datetime.now().month - 1
+        current_season = seasons[current_month]
+        
+        # 时间段定义
+        hour_segments = ['深夜', '深夜', '深夜', '凌晨', '早晨', '上午', '中午', '下午', '晚上', '晚上', '深夜', '深夜']
+        current_hour_segment = hour_segments[datetime.datetime.now().hour // 2]
+        
+        # 天气定义
+        weather_options = ['晴朗', '多云', '小雨', '阴天', '大风']
+        current_weather = random.choice(weather_options)
+        
+        # 季节特有事物
+        seasonal_things = {
+            '春': ['樱花', '春雨', '踏青'],
+            '夏': ['西瓜', '空调', '蝉鸣'],
+            '秋': ['落叶', '秋雨', '桂花'],
+            '冬': ['火锅', '初雪', '围巾']
+        }
+        
+        # 时间段相关活动
+        time_activities = {
+            '早晨': '早餐/通勤',
+            '上午': '工作/学习', 
+            '中午': '午餐/午休',
+            '下午': '下午茶/运动',
+            '晚上': '晚餐/追剧',
+            '深夜': '宵夜/失眠'
+        }
+
+        seasonal_special = {
+            '春': '新鲜事',
+            '夏': '清凉一刻',
+            '秋': '小确幸', 
+            '冬': '温暖瞬间'
+        }
+        # 生成prompt
         if random_topic:
             prompt = f"""
-            你是'{bot_personality}'，你想写一条说说发表在qq空间上，主题不限
+            当前时间：{datetime.datetime.now().strftime('%m月%d日 %H:%M')} {weekdays[datetime.datetime.now().weekday()]}
+            季节：{current_season}季
+
+            你作为'{bot_personality}'，想发一条日常说说：
             {bot_expression}
-            不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，可以适当使用颜文字，
-            只输出一条说说正文的内容，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )
+
+            构思建议：
+            - 当前天气感受：{current_weather}
+            - 季节限定事物：{seasonal_things[current_season]}
+            - 日常生活片段
+            - 近期小确幸
+            - 游戏日常
+            * 刚才发生的趣事
+            * 看到的{time_activities[current_hour_segment]}
+            * {current_season}季特有的{seasonal_special[current_season]}
+            - 保持随意自然的口吻
             """
         else:
             fixed_topic = random.choice(fixed_topics)
             prompt = f"""
-            你是'{bot_personality}'，你想写一条主题是'{fixed_topic}'的说说发表在qq空间上，
+            当前时间：{datetime.datetime.now().strftime('%Y年%m月%d日 %H:%M')} {weekdays[datetime.datetime.now().weekday()]}
+            季节：{current_season}季
+            天气：{current_weather}
+
+            你作为'{bot_personality}'，想发一条关于'{fixed_topic}'的说说：
             {bot_expression}
-            不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，可以适当使用颜文字，
-            只输出一条说说正文的内容，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )
+
+            写作要求：
+            1. 自然融入当前时间/季节/天气特征
+            2. 使用口语化表达，像真人朋友圈
+            3. 可以提及：
+            - 季节特有的事物（如{seasonal_things[current_season]}）
+            - 当前时间段相关活动（如{time_activities[current_hour_segment]}）
+            4. 可适当使用1-2个颜文字(如~ ^_^)
+            5. 避免：
+            - 专业术语
+            - 夸张修辞
+            - 模板化表达
+            - 特殊符号
             """
 
-        prompt += "\n以下是你最近发过的说说，写新说说时注意不要在相隔不长的时间发送相似内容的说说\n"
-        prompt += await get_send_history(qq_account)
-        prompt += "\n只输出一条说说正文的内容，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )"
+        prompt += f"""
+        \n历史说说参考（避免重复或高度相似,如多送了什么之类的在此前发过很多次了）：
+        {await get_send_history(qq_account)}
+
+        输出要求：
+        - 纯文本内容
+        - 无前缀/后缀
+        - 无文字模拟的表情包
+        - 符合实际
+        - 长度30-120字
+        """
+        logger.info(f"配文生成prompt：'{prompt}'")
+
+
 
         success, story, reasoning, model_name = await llm_api.generate_with_model(
             prompt=prompt,
