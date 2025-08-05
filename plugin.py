@@ -682,9 +682,8 @@ class QzoneAPI:
         try:
             # 2. 解析JSON数据
             json_data = json.loads(json_str)
+            logger.debug(f"原始说说数据: {json_data}")
             uin_nickname = json_data.get('logininfo').get('name')
-
-            #print(json_data)
 
             if json_data.get('code') != 0:
                 return [{"error": json_data.get('message')}]
@@ -814,6 +813,7 @@ class QzoneAPI:
         try:
             # 2. 解析JSON数据
             data = json5.loads(data)['data']['data']
+            logger.debug(f"原始说说数据: {data}")
         except Exception as e:
             logger.error(f"解析错误: {e}")
             # 3. 提取说说内容
@@ -1114,7 +1114,7 @@ async def read_feed(qq_account: str, target_qq: str, num: int):
 
     try:
         feeds_list = await qzone.get_list(target_qq, num)
-        #print(feeds_list)
+        logger.debug(f"获取到的说说列表: {feeds_list}")
         return feeds_list
     except Exception as e:
         logger.error("获取list失败")
@@ -1143,7 +1143,7 @@ async def monitor_read_feed(qq_account: str, num: int):
 
     try:
         feeds_list = await qzone.monitor_get_list(num)
-        #print(feeds_list)
+        logger.debug(f"获取到的说说列表: {feeds_list}")
         return feeds_list
     except Exception as e:
         logger.error("获取list失败")
@@ -1525,8 +1525,9 @@ class SendFeedAction(BaseAction):
         user_name = self.action_data.get("user_name", "")
         person_id = person_api.get_person_id_by_name(user_name)
         show_prompt = self.get_config("models.show_prompt", False)
-        if not person_id or person_id == "unknown":
-            logger.error(f"未找到用户 {user_name} 的person_id")
+        user_id = await person_api.get_person_value(person_id, "user_id")
+        if not user_id or user_id == "unknown":
+            logger.error(f"未找到用户 {user_name} 的user_id")
             success, reply_set, prompt_ = await generator_api.generate_reply(
                 chat_stream=self.chat_stream,
                 action_data={
@@ -1536,8 +1537,7 @@ class SendFeedAction(BaseAction):
             if success and reply_set:
                 reply_type, reply_content = reply_set[0]
                 await self.send_text(reply_content)
-            return False, "未找到用户的person_id"
-        user_id = await person_api.get_person_value(person_id, "user_id")
+            return False, "未找到用户的user_id"
         if not self.check_permission(user_id):  # 若权限不足
             logger.info(f"{user_id}无{self.action_name}权限")
             success, reply_set, prompt_ = await generator_api.generate_reply(
@@ -1681,18 +1681,19 @@ class ReadFeedAction(BaseAction):
         user_name = self.action_data.get("user_name", "")
         person_id = person_api.get_person_id_by_name(user_name)
         show_prompt = self.get_config("models.show_prompt", False)
-        if not person_id or person_id == "unknown":
-            logger.error(f"未找到用户 {user_name} 的person_id")
+        user_id = await person_api.get_person_value(person_id, "user_id")
+        if not user_id or user_id == "unknown":
+            logger.error(f"未找到用户 {user_name} 的user_id")
             success, reply_set, prompt_ = await generator_api.generate_reply(
                 chat_stream=self.chat_stream,
                 action_data={
-                    "extra_info_block": f'你不认识{user_name}，无法阅读他的说说，请用符合你人格特点的方式拒绝请求'}
+                    "extra_info_block": f'你不认识{user_name}，请用符合你人格特点的方式拒绝请求'}
             )
+
             if success and reply_set:
                 reply_type, reply_content = reply_set[0]
                 await self.send_text(reply_content)
-            return False, "未找到用户的person_id"
-        user_id = await person_api.get_person_value(person_id, "user_id")
+            return False, "未找到用户的user_id"
         if not self.check_permission(user_id):  # 若权限不足
             logger.info(f"{user_id}无{self.action_name}权限")
             success, reply_set, prompt_ = await generator_api.generate_reply(
