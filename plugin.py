@@ -895,13 +895,14 @@ async def generate_image_by_sf(api_key: str, story: str, image_dir: str, batch_s
     if not model_config:
         logger.error('配置模型失败')
         return False
-    prompt=f"""
+    prompt = f"""
         请根据以下QQ空间说说内容配图，并构建生成配图的风格和prompt。
         说说主人信息：'{bot_personality},{str(bot_details)}'。
         说说内容:'{story}'。 
         请注意：仅回复用于生成图片的prompt，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )
         画风不要AI化，可以像蔚蓝档案中人物的画风
         """
+    
     success, prompt, reasoning, model_name = await llm_api.generate_with_model(
         prompt=prompt,
         model_config=model_config,
