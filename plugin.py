@@ -895,14 +895,15 @@ async def generate_image_by_sf(api_key: str, story: str, image_dir: str, batch_s
     if not model_config:
         logger.error('配置模型失败')
         return False
-    success, prompt, reasoning, model_name = await llm_api.generate_with_model(
-        prompt=f"""
+    prompt=f"""
         请根据以下QQ空间说说内容配图，并构建生成配图的风格和prompt。
         说说主人信息：'{bot_personality},{str(bot_details)}'。
         说说内容:'{story}'。 
         请注意：仅回复用于生成图片的prompt，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )
         画风不要AI化，可以像蔚蓝档案中人物的画风
-        """,
+        """
+    success, prompt, reasoning, model_name = await llm_api.generate_with_model(
+        prompt=prompt,
         model_config=model_config,
         request_type="story.generate",
         temperature=0.3,
@@ -1133,7 +1134,7 @@ class SendFeedCommand(BaseCommand):
 
             构思建议：
             - 当前天气感受：{current_weather}
-            - 季节限定事物：{seasonal_things[current_season]}
+            - 季节特有的事物（如{seasonal_things[current_season]}）
             - 日常生活片段
             - 近期小确幸
             - 游戏日常
@@ -1144,13 +1145,14 @@ class SendFeedCommand(BaseCommand):
             """
 
         prompt += f"""
-        \n历史说说参考（避免重复或高度相似,如多送了什么之类的在此前发过很多次了）：
+        \n以下是你以前发过的说说，写新说说时注意不要在相隔不长的时间发送相同主题的说说（避免重复或高度相似，如多送了什么之类的生成次数已经较多了）：
         {await get_send_history(qq_account)}
 
         输出要求：
         - 纯文本内容
         - 无前缀/后缀
         - 无文字模拟的表情包
+        - 无特殊符号（包括冒号和引号，括号()，表情包，at或@等）
         - 符合实际
         - 长度30-120字
         """
@@ -1325,6 +1327,7 @@ class SendFeedAction(BaseAction):
         当前时间：{datetime.datetime.now().strftime('%Y年%m月%d日 %H:%M')} {weekdays[datetime.datetime.now().weekday()]}
         季节：{current_season}季
         天气：{current_weather}
+        
 
         你作为'{bot_personality}'，想发一条关于'{topic}'的说说：
         {bot_expression}
@@ -1341,6 +1344,18 @@ class SendFeedAction(BaseAction):
         - 夸张修辞
         - 模板化表达
         - 特殊符号
+        """
+        prompt += f"""
+        \n以下是你以前发过的说说，写新说说时注意不要在相隔不长的时间发送相同主题的说说（避免重复或高度相似，如多送了什么之类的生成次数已经较多了）：
+        {await get_send_history(qq_account)}
+
+        输出要求：
+        - 纯文本内容
+        - 无前缀/后缀
+        - 无文字模拟的表情包
+        - 无特殊符号（包括冒号和引号，括号()，表情包，at或@等）
+        - 符合实际
+        - 长度30-120字
         """
         logger.info(f"配文生成prompt：'{prompt}'")
 
@@ -1913,7 +1928,7 @@ class ScheduleSender:
 
             构思建议：
             - 当前天气感受：{current_weather}
-            - 季节限定事物：{seasonal_things[current_season]}
+            - 季节特有的事物（如{seasonal_things[current_season]}）
             - 日常生活片段
             - 近期小确幸
             - 游戏日常
@@ -1947,13 +1962,14 @@ class ScheduleSender:
             """
 
         prompt += f"""
-        \n历史说说参考（避免重复或高度相似,如多送了什么之类的在此前发过很多次了）：
+        \n以下是你以前发过的说说，写新说说时注意不要在相隔不长的时间发送相同主题的说说（避免重复或高度相似，如多送了什么之类的生成次数已经较多了）：
         {await get_send_history(qq_account)}
 
         输出要求：
         - 纯文本内容
         - 无前缀/后缀
         - 无文字模拟的表情包
+        - 无特殊符号（包括冒号和引号，括号()，表情包，at或@等）
         - 符合实际
         - 长度30-120字
         """
