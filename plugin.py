@@ -12,6 +12,7 @@ import httpx
 import asyncio
 import bs4
 import json5
+from dotenv import load_dotenv
 
 from src.chat.utils.utils_image import get_image_manager
 from src.common.logger import get_logger
@@ -24,6 +25,7 @@ from src.plugin_system.apis import llm_api, config_api, emoji_api, person_api, g
 from src.plugin_system.base.config_types import ConfigField
 
 logger = get_logger('Maizone')
+load_dotenv(verbose=True)
 
 
 # ===== QZone API 功能 =====
@@ -75,11 +77,12 @@ def extract_uin_from_cookie(cookie_str: str) -> str:
     raise ValueError("无法从 Cookie 字符串中提取 uin")
 
 
-async def fetch_cookies(domain: str, port: str, napcat_token: str = "") -> dict:
+async def fetch_cookies(host: str, domain: str, port: str, napcat_token: str = "") -> dict:
     """
     获取cookie
     Args:
-        domain: 域名
+        host: Napcat服务的主机名或IP地址
+        domain: QQ空间域名
         port: Napcat服务端口
         napcat_token: Napcat服务设置的Token
     Returns:
@@ -87,7 +90,7 @@ async def fetch_cookies(domain: str, port: str, napcat_token: str = "") -> dict:
     Raises:
         RuntimeError: 当获取cookie失败或无法连接Napcat服务时抛出
     """
-    url = f"http://127.0.0.1:{port}/get_cookies?domain={domain}"
+    url = f"http://{host}:{port}/get_cookies?domain={domain}"
     max_retries = 5  # 最大重试次数
     retry_delay = 1  # 初始重试延迟时间(秒)
 
@@ -98,7 +101,7 @@ async def fetch_cookies(domain: str, port: str, napcat_token: str = "") -> dict:
                 headers["Authorization"] = f"Bearer {napcat_token}"
 
             async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
-                resp = await client.get(url, headers=headers)
+                resp = await client.post(url, headers=headers)
                 resp.raise_for_status()
 
                 # 处理非200响应
@@ -148,8 +151,9 @@ async def renew_cookies(port: str, napcat_token: str = ""):
         httpx.RequestError: 网络请求异常。
     """
     domain = "user.qzone.qq.com"
+    host = os.getenv("HOST")
     try:
-        cookie_data = await fetch_cookies(domain, port, napcat_token)
+        cookie_data = await fetch_cookies(host, domain, port, napcat_token)
     except httpx.RequestError as e:
         logger.error(f"网络请求异常: {str(e)}")
         raise
@@ -1244,7 +1248,7 @@ async def generate_image_by_sf(api_key: str, story: str, image_dir: str, batch_s
     用siliconflow API生成说说配图保存至对应路径
 
     Args:
-        api_key(str): SiliconFlow API的密钥。
+        api_key (str): SiliconFlow API的密钥。
         story (str): 说说内容，用于生成配图的描述。
         image_dir (str): 图片保存的目录路径。
         batch_size (int): 每次生成的图片数量，默认为1。
@@ -1422,7 +1426,7 @@ class SendFeedCommand(BaseCommand):
         # 生成图片相关配置
         enable_image = self.get_config("send.enable_image", "true")
         image_dir = self.get_config("send.image_directory", "./images")
-        apikey = self.get_config("models.siliconflow_apikey", "")
+        apikey = os.getenv("SILICONFLOW_KEY")
         image_mode = self.get_config("send.image_mode", "random").lower()
         ai_probability = self.get_config("send.ai_probability", 0.5)
         image_number = self.get_config("send.image_number", 1)
@@ -1571,7 +1575,7 @@ class SendFeedAction(BaseAction):
         napcat_token = self.get_config("plugin.napcat_token", "")
         # 生成图片相关配置
         image_dir = self.get_config("send.image_directory", "./images")
-        apikey = self.get_config("models.siliconflow_apikey", "")
+        apikey = os.getenv("SILICONFLOW_KEY")
         image_mode = self.get_config("send.image_mode", "random").lower()
         ai_probability = self.get_config("send.ai_probability", 0.5)
         image_number = self.get_config("send.image_number", 1)
@@ -2104,7 +2108,7 @@ class ScheduleSender:
         # 生成图片相关配置
         image_dir = self.plugin.get_config("send.image_directory", "./images")
         enable_image = self.plugin.get_config("send.enable_image", True)
-        apikey = self.plugin.get_config("models.siliconflow_apikey", "")
+        apikey = os.getenv("SILICONFLOW_KEY")
         image_mode = self.plugin.get_config("send.image_mode", "random").lower()
         ai_probability = self.plugin.get_config("send.ai_probability", 0.5)
         image_number = self.plugin.get_config("send.image_number", 1)
@@ -2174,7 +2178,7 @@ class MaizonePlugin(BasePlugin):
 
     plugin_name = "Maizone"
     plugin_description = "让麦麦实现QQ空间点赞、评论、发说说"
-    plugin_version = "1.3.0"
+    plugin_version = "1.3.1"
     plugin_author = "internetsb"
     enable_plugin = True
     config_file_name = "config.toml"
@@ -2196,8 +2200,7 @@ class MaizonePlugin(BasePlugin):
             "napcat_token": ConfigField(type=str, default="", description="Napcat服务认证Token（默认为空）"),
         },
         "models": {
-            "text_model": ConfigField(type=str, default="replyer_1", description="生成文本的模型（从全局变量读取）"),
-            "siliconflow_apikey": ConfigField(type=str, default="", description="用于硅基流动ai生图的apikey"),
+            "text_model": ConfigField(type=str, default="replyer_1", description="生成文本的模型（从全局配置读取）"),
             "show_prompt": ConfigField(type=bool, default=False, description="是否显示生成prompt内容")
         },
         "send": {

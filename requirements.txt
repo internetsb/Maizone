@@ -1,3 +1,4 @@
 httpx
 bs4
 json5
+dotenv

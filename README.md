@@ -3,7 +3,7 @@
 <u>制作者水平稀烂，任何bug或建议请联系qq：1523640161</u>
 
 ## 概述
-Maizone（麦麦空间）插件v1.3.0，让你的麦麦发说说，读QQ空间，点赞评论！
+Maizone（麦麦空间）插件v1.3.1，让你的麦麦发说说，读QQ空间，点赞评论！
 
 ## 功能
 - **发说说**: 当用户说"说说"、"qq空间"、"动态"时麦麦会决定是否发说说和说说的主题
@@ -38,7 +38,7 @@ Maizone（麦麦空间）插件v1.3.0，让你的麦麦发说说，读QQ空间�
 
    <u>一键包用户可在启动时安装MaiBot\plugins\Maizone\requirements.txt</u>中的依赖
 
-4. 启动一次麦麦主程序以生成`config.toml`配置文件
+4. 启动一次以生成`config.toml`配置文件
 
 ### 设置Napcat http服务器端口
 
@@ -51,7 +51,7 @@ Maizone（麦麦空间）插件v1.3.0，让你的麦麦发说说，读QQ空间�
 ### 修改配置文件
 请设置：
 1. 是否启用插件、自动阅读功能、定时发送功能
-2. 是否启用说说配图和ai生成配图（及相应的apikey）
+2. 是否启用说说配图和ai生成配图（及Maibot/.env中的SILICONFLOW_KEY）
 3. 权限名单及类型
 
 更多配置请看config.toml中的注释
@@ -72,4 +72,3 @@ Maizone（麦麦空间）插件v1.3.0，让你的麦麦发说说，读QQ空间�
 部分代码来自仓库：https://github.com/gfhdhytghd/qzone-toolkit
 
 感谢[xc94188](https://github.com/xc94188)提供的功能改进
-
