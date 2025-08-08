@@ -32,6 +32,8 @@ Maizone（麦麦空间）插件v1.3.0，让你的麦麦发说说，读QQ空间�
    .\venv\Scripts\activate
    cd .\plugins\Maizone\
    pip install -i https://mirrors.aliyun.com/pypi/simple -r .\requirements.txt --upgrade
+   #uv安装,在plugins\Maizone文件夹下
+   uv pip install -r .\requirements.txt -i https://mirrors.aliyun.com/pypi/simple --upgrade
    ```
 
    <u>一键包用户可在启动时安装MaiBot\plugins\Maizone\requirements.txt</u>中的依赖
