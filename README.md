@@ -38,7 +38,7 @@ Maizone（麦麦空间）插件v1.3.0，让你的麦麦发说说，读QQ空间�
 
    <u>一键包用户可在启动时安装MaiBot\plugins\Maizone\requirements.txt</u>中的依赖
 
-4. 启动一次以生成`config.toml`配置文件
+4. 启动一次麦麦主程序以生成`config.toml`配置文件
 
 ### 设置Napcat http服务器端口
 
@@ -72,3 +72,4 @@ Maizone（麦麦空间）插件v1.3.0，让你的麦麦发说说，读QQ空间�
 部分代码来自仓库：https://github.com/gfhdhytghd/qzone-toolkit
 
 感谢[xc94188](https://github.com/xc94188)提供的功能改进
+
