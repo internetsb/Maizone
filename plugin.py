@@ -41,9 +41,8 @@ def get_cookie_file_path(uin: str) -> str:
         str: cookie文件路径
     """
     uin = uin.lstrip("0")  # 去除可能的前缀0
-    base_dir = Path.cwd() / "plugins" / "Maizone"
+    base_dir = Path(__file__).parent.resolve()
     return str(base_dir / f"cookies-{uin}.json")
-
 
 def parse_cookie_string(cookie_str: str) -> dict:
     """
@@ -56,25 +55,6 @@ def parse_cookie_string(cookie_str: str) -> dict:
         dict: 表示cookie的字典，其中键为cookie名称，值为对应的cookie值。
     """
     return {pair.split("=", 1)[0]: pair.split("=", 1)[1] for pair in cookie_str.split("; ")}
-
-
-def extract_uin_from_cookie(cookie_str: str) -> str:
-    """
-    从cookie字符串中提取QQ号(uin)。
-
-    Args:
-        cookie_str (str): 包含多个键值对的cookie字符串，键值对之间用"; "分隔。
-
-    Returns:
-        str: 提取的QQ号(uin)，去掉前缀"o"。
-
-    Raises:
-        ValueError: 如果无法从cookie字符串中提取uin时抛出。
-    """
-    for item in cookie_str.split("; "):
-        if item.startswith("uin=") or item.startswith("o_uin="):
-            return item.split("=")[1].lstrip("o")
-    raise ValueError("无法从 Cookie 字符串中提取 uin")
 
 
 async def fetch_cookies(host: str, domain: str, port: str, napcat_token: str = "") -> dict:
@@ -90,18 +70,25 @@ async def fetch_cookies(host: str, domain: str, port: str, napcat_token: str = "
     Raises:
         RuntimeError: 当获取cookie失败或无法连接Napcat服务时抛出
     """
-    url = f"http://{host}:{port}/get_cookies?domain={domain}"
+    url = f"http://{host}:{port}/get_cookies"
     max_retries = 5  # 最大重试次数
     retry_delay = 1  # 初始重试延迟时间(秒)
 
     for attempt in range(max_retries):
         try:
-            headers = {}
+            headers = {
+                "Content-Type": "application/json"
+            }
+
+            # 添加认证头
             if napcat_token:
                 headers["Authorization"] = f"Bearer {napcat_token}"
 
+            # 构建JSON请求体
+            payload = {"domain": domain}
+
             async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
-                resp = await client.post(url, headers=headers)
+                resp = await client.post(url, json=payload, headers=headers)
                 resp.raise_for_status()
 
                 # 处理非200响应
@@ -132,7 +119,7 @@ async def fetch_cookies(host: str, domain: str, port: str, napcat_token: str = "
     raise RuntimeError(f"无法连接到Napcat服务: 超过最大重试次数({max_retries})")
 
 
-async def renew_cookies(port: str, napcat_token: str = "", host: str = "127.0.0.1"):
+async def renew_cookies(host: str = "127.0.0.1", port: str = "9999", napcat_token: str = ""):
     """
     更新QQ空间的cookie文件，存入相应目录
 
@@ -146,12 +133,10 @@ async def renew_cookies(port: str, napcat_token: str = "", host: str = "127.0.0.
         OSError: 其他文件写入相关错误。
         RuntimeError: 获取cookie失败、Napcat服务权限不足、Token错误、返回数据异常等。
         KeyError: 返回数据缺少cookies字段。
-        ValueError: 无法从cookie字符串中提取uin。
         TypeError: 传入参数类型错误。
         httpx.RequestError: 网络请求异常。
     """
     domain = "user.qzone.qq.com"
-    # host参数现在通过函数参数传递，而不是使用self.get_config
     try:
         cookie_data = await fetch_cookies(host, domain, port, napcat_token)
     except httpx.RequestError as e:
@@ -173,14 +158,14 @@ async def renew_cookies(port: str, napcat_token: str = "", host: str = "127.0.0.
         raise RuntimeError(f"返回数据中缺少'cookies'字段: {cookie_data}")
     try:
         parsed_cookies = parse_cookie_string(cookie_str)
-        uin = extract_uin_from_cookie(cookie_str)
+        uin = config_api.get_global_config('bot.qq_account', "")
         file_path = get_cookie_file_path(uin)
-        
+
         # 确保目录存在
         directory = os.path.dirname(file_path)
         if not os.path.exists(directory):
             os.makedirs(directory)
-            
+
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(parsed_cookies, f, indent=4, ensure_ascii=False)
         logger.info(f"[OK] cookies 已保存至: {file_path}")
@@ -298,16 +283,13 @@ class QzoneAPI:
     ZONE_LIST_URL = "https://user.qzone.qq.com/proxy/domain/ic2.qzone.qq.com/cgi-bin/feeds/feeds3_html_more"
 
     def __init__(self, cookies_dict: dict = {}):
-        self.cookies = cookies_dict
-        self.gtk2 = ''
-        self.uin = 0
-        self.qzonetoken = ''
+        self.cookies: dict = cookies_dict  # cookies字典
+        self.gtk2 = ''  # gtk密钥值
+        self.uin = int(config_api.get_global_config('bot.qq_account', ""))  # QQ号
+        self.qq_nickname = ""  # 真实QQ昵称，包含表情符号
 
         if 'p_skey' in self.cookies:
             self.gtk2 = generate_gtk(self.cookies['p_skey'])
-
-        if 'uin' in self.cookies:
-            self.uin = int(self.cookies['uin'][1:])
 
     async def do(
             self,
@@ -541,7 +523,7 @@ class QzoneAPI:
         """
         uin = self.uin
         post_data = {
-            "topicId": f'{target_qq}_{fid}__1',  #说说ID
+            "topicId": f'{target_qq}_{fid}__1',  # 说说ID
             "uin": uin,  # botQQ
             "hostUin": target_qq,  # 目标QQ
             "feedsType": 100,  # 说说类型
@@ -694,6 +676,7 @@ class QzoneAPI:
             json_data = json.loads(json_str)
             logger.debug(f"原始说说数据: {json_data}")
             uin_nickname = json_data.get('logininfo').get('name')
+            self.qq_nickname = uin_nickname
 
             if json_data.get('code') != 0:
                 return [{"error": json_data.get('message')}]
@@ -715,11 +698,12 @@ class QzoneAPI:
                 if not is_comment:
                     # 存储结果
                     timestamp = msg.get("created_time", "")
-                    created_time = "unknown"
                     if timestamp:
                         time_tuple = time.localtime(timestamp)
                         # 格式化为字符串（年-月-日 时:分:秒）
                         created_time = time.strftime('%Y-%m-%d %H:%M:%S', time_tuple)
+                    else:
+                        created_time = msg.get("createTime", "unknown")
                     tid = msg.get("tid", "")
                     content = msg.get("content", "")
                     logger.info(f"正在阅读说说内容: {content[:20]}...")
@@ -734,7 +718,7 @@ class QzoneAPI:
                                 image_manager = get_image_manager()
                                 image_description = await image_manager.get_image_description(image_base64)
                                 images.append(image_description)
-                    # 读取视频临时手段
+                    # 读取视频临时手段(解读封面)
                     if 'video' in msg:
                         for video in msg['video']:
                             video_image_url = video.get('url1') or video.get('pic_url')
@@ -753,15 +737,27 @@ class QzoneAPI:
                     rt_con = ""
                     if "rt_con" in msg:
                         rt_con = msg.get("rt_con").get("content")
-                    #存储信息
+                    # 提取评论信息
+                    comments = []
+                    if 'commentlist' in msg:
+                        commentlist = msg.get("commentlist")
+                        for comment in commentlist:
+                            comment_content = comment.get("content", "")
+                            comment_uin = comment.get("uin", "")
+                            comment_time = comment.get("createTime", "") or comment.get("createTime2", "")
+                            comments.append({"content": comment_content,
+                                             "uin": comment_uin,
+                                             "created_time": comment_time})
+                    # 存储信息
                     feeds_list.append({"tid": tid,
                                        "created_time": created_time,
                                        "content": content,
                                        "images": images,
                                        "videos": videos,
-                                       "rt_con": rt_con})
+                                       "rt_con": rt_con,
+                                       "comments": comments})
             if len(feeds_list) == 0:
-                return [{"error": '你已经看过所有说说了，没有必要再看一遍'}]
+                return [{"error": '你已经看过最近的所有说说了，没有必要再看一遍'}]
             return feeds_list
 
         except Exception as e:
@@ -770,7 +766,7 @@ class QzoneAPI:
 
     async def monitor_get_list(self, num: int) -> list[dict[str, Any]]:
         """
-        获取自己的好友说说列表。
+        解析http获取自己的好友说说列表。
 
         Args:
             num (int): 要获取的说说数量。
@@ -816,6 +812,7 @@ class QzoneAPI:
             raise Exception("访问失败: " + str(res.status_code))
 
         data = res.text
+        logger.debug(f"原始说说数据:{data}")
         if data.startswith('_Callback(') and data.endswith(');'):
             # 1. 去掉res首尾的 _Callback( 和 );
             data = data[len('_Callback('):-2]
@@ -823,7 +820,7 @@ class QzoneAPI:
         try:
             # 2. 解析JSON数据
             data = json5.loads(data)['data']['data']
-            logger.debug(f"原始说说数据: {data}")
+            logger.debug(f"初解析原始说说数据: {data}")
         except Exception as e:
             logger.error(f"解析错误: {e}")
             # 3. 提取说说内容
@@ -1428,27 +1425,22 @@ class SendFeedCommand(BaseCommand):
         # 核心配置
         qq_account = config_api.get_global_config("bot.qq_account", "")
         port = self.get_config("plugin.http_port", "9999")
-        host = self.get_config("plugin.http_host", "127.0.0.1")
         napcat_token = self.get_config("plugin.napcat_token", "")
+        host = self.get_config("plugin.http_host", "127.0.0.1")
         # 生成图片相关配置
         enable_image = self.get_config("send.enable_image", "true")
-        image_dir = self.get_config("send.image_directory", "./images")
+        image_dir = str(Path(__file__).parent.resolve() / "images")
         apikey = os.getenv("SILICONFLOW_KEY")
-        image_mode = self.get_config("send.image_mode", "random").lower()
         image_mode = self.get_config("send.image_mode", "random").lower()
         ai_probability = self.get_config("send.ai_probability", 0.5)
         image_number = self.get_config("send.image_number", 1)
 
-        if image_mode != "only_emoji" and not apikey:
-            logger.error('请填写apikey')
-            image_mode = "only_emoji"  # 如果没有apikey，则只使用表情包
-
         # 更新cookies
         try:
-            await renew_cookies(port, napcat_token, host)
+            await renew_cookies(host, port, napcat_token)
         except Exception as e:
             logger.error(f"更新cookies失败: {str(e)}")
-            return False, "更新cookies失败"
+            return False, "更新cookies失败", True
 
         if topic:
             prompt = f"""
@@ -1551,8 +1543,9 @@ class SendFeedAction(BaseAction):
             )
 
             if success and reply_set:
-                reply_type, reply_content = reply_set[0]
-                await self.send_text(reply_content)
+                for (reply_type, reply_content) in reply_set:
+                    await self.send_text(reply_content)
+                    await asyncio.sleep(1 + random.uniform(0, 1))
             return False, "未找到用户的user_id"
         if not self.check_permission(user_id):  # 若权限不足
             logger.info(f"{user_id}无{self.action_name}权限")
@@ -1562,8 +1555,9 @@ class SendFeedAction(BaseAction):
             )
 
             if success and reply_set:
-                reply_type, reply_content = reply_set[0]
-                await self.send_text(reply_content)
+                for (reply_type, reply_content) in reply_set:
+                    await self.send_text(reply_content)
+                    await asyncio.sleep(1 + random.uniform(0, 1))
             return False, ""
         else:
             logger.info(f"{user_id}拥有{self.action_name}权限")
@@ -1585,14 +1579,15 @@ class SendFeedAction(BaseAction):
         qq_account = config_api.get_global_config("bot.qq_account", "")
         port = self.get_config("plugin.http_port", "9999")
         napcat_token = self.get_config("plugin.napcat_token", "")
+        host = self.get_config("plugin.http_host", "127.0.0.1")
         # 生成图片相关配置
-        image_dir = self.get_config("send.image_directory", "./images")
+        image_dir = str(Path(__file__).parent.resolve() / "images")
         apikey = os.getenv("SILICONFLOW_KEY")
         image_mode = self.get_config("send.image_mode", "random").lower()
         ai_probability = self.get_config("send.ai_probability", 0.5)
         image_number = self.get_config("send.image_number", 1)
         try:
-            await renew_cookies(port, napcat_token)
+            await renew_cookies(host, port, napcat_token)
         except Exception as e:
             logger.error(f"更新cookies失败: {str(e)}")
             return False, "更新cookies失败"
@@ -1628,7 +1623,7 @@ class SendFeedAction(BaseAction):
 
         # 更新cookies
         try:
-            await renew_cookies(port, napcat_token)
+            await renew_cookies(host, port, napcat_token)
         except Exception as e:
             logger.error(f"更新cookies失败: {str(e)}")
             return False, "更新cookies失败"
@@ -1648,8 +1643,9 @@ class SendFeedAction(BaseAction):
         )
 
         if success and reply_set:
-            reply_type, reply_content = reply_set[0]
-            await self.send_text(reply_content)
+            for (reply_type, reply_content) in reply_set:
+                await self.send_text(reply_content)
+                await asyncio.sleep(1 + random.uniform(0, 1))
 
             return True, 'success'
         return False, '生成回复失败'
@@ -1707,8 +1703,9 @@ class ReadFeedAction(BaseAction):
             )
 
             if success and reply_set:
-                reply_type, reply_content = reply_set[0]
-                await self.send_text(reply_content)
+                for (reply_type, reply_content) in reply_set:
+                    await self.send_text(reply_content)
+                    await asyncio.sleep(1 + random.uniform(0, 1))
             return False, "未找到用户的user_id"
         if not self.check_permission(user_id):  # 若权限不足
             logger.info(f"{user_id}无{self.action_name}权限")
@@ -1717,8 +1714,9 @@ class ReadFeedAction(BaseAction):
                 action_data={"extra_info_block": f'{user_name}无权命令你阅读说说，请用符合人格的方式进行拒绝的回复'}
             )
             if success and reply_set:
-                reply_type, reply_content = reply_set[0]
-                await self.send_text(reply_content)
+                for (reply_type, reply_content) in reply_set:
+                    await self.send_text(reply_content)
+                    await asyncio.sleep(1 + random.uniform(0, 1))
             return False, ""
         else:
             logger.info(f"{user_id}拥有{self.action_name}权限")
@@ -1728,11 +1726,11 @@ class ReadFeedAction(BaseAction):
         port = self.get_config("plugin.http_port", "9999")
         qq_account = config_api.get_global_config("bot.qq_account", "")
         napcat_token = self.get_config("plugin.napcat_token", "")
-        host = self.get_config("plugin.http_host", "127.0.0.1")
+        host = self.get_config("plugin.http_host", "")
 
         # 更新cookies
         try:
-            await renew_cookies(port, napcat_token, host)
+            await renew_cookies(host, port, napcat_token)
         except Exception as e:
             logger.error(f"更新cookies失败: {str(e)}")
             return False, "更新cookies失败"
@@ -1761,12 +1759,13 @@ class ReadFeedAction(BaseAction):
         if 'error' in feeds_list[0]:
             success, reply_set, prompt_ = await generator_api.generate_reply(
                 chat_stream=self.chat_stream,
-                action_data={"extra_info_block": f'你在读取说说的时候出现了错误，错误原因：{feeds_list[0].get("error")}'}
+                action_data={"extra_info_block": f'你没有读取到任何说说，{feeds_list[0].get("error")}'}
             )
 
             if success and reply_set:
-                reply_type, reply_content = reply_set[0]
-                await self.send_text(reply_content)
+                for (reply_type, reply_content) in reply_set:
+                    await self.send_text(reply_content)
+                    await asyncio.sleep(1 + random.uniform(0, 1))
                 return True, 'success'
 
             return False, '生成回复失败'
@@ -1833,8 +1832,9 @@ class ReadFeedAction(BaseAction):
         )
 
         if success and reply_set:
-            reply_type, reply_content = reply_set[0]
-            await self.send_text(reply_content)
+            for (reply_type, reply_content) in reply_set:
+                await self.send_text(reply_content)
+                await asyncio.sleep(1 + random.uniform(0, 1))
             return True, 'success'
 
         return False, '生成回复失败'
@@ -1899,7 +1899,7 @@ class FeedMonitor:
         qq_account = config_api.get_global_config("bot.qq_account", "")
         port = self.plugin.get_config("plugin.http_port", "9999")
         napcat_token = self.plugin.get_config("plugin.napcat_token", "")
-        host = self.plugin.get_config("plugin.http_host", "127.0.0.1")
+        host = self.plugin.get_config("plugin.http_host", "")
         show_prompt = self.plugin.get_config("models.show_prompt", False)
         #模型配置
         models = llm_api.get_available_models()
@@ -1913,7 +1913,7 @@ class FeedMonitor:
 
         # 更新cookies
         try:
-            await renew_cookies(port, napcat_token, host)
+            await renew_cookies(host, port, napcat_token)
         except Exception as e:
             logger.error(f"更新cookies失败: {str(e)}")
             return False, "更新cookies失败"
@@ -1986,7 +1986,7 @@ class FeedMonitor:
 
                         logger.info(f"正在回复{comment['nickname']}的评论：{comment['content']}...")
 
-                        await renew_cookies(port, napcat_token, host)
+                        await renew_cookies(host, port, napcat_token)
                         success = await reply_feed(fid, qq_account, target_qq, comment['nickname'], reply,
                                                    comment['comment_tid'])
                         if not success:
@@ -2119,17 +2119,17 @@ class ScheduleSender:
         qq_account = config_api.get_global_config("bot.qq_account", "")
         port = self.plugin.get_config("plugin.http_port", "9999")
         napcat_token = self.plugin.get_config("plugin.napcat_token", "")
+        host = self.plugin.get_config("plugin.http_host", "127.0.0.1")
         # 生成图片相关配置
-        image_dir = self.plugin.get_config("send.image_directory", "./images")
+        image_dir = str(Path(__file__).parent.resolve() / "images")
         enable_image = self.plugin.get_config("send.enable_image", True)
         apikey = os.getenv("SILICONFLOW_KEY")
         image_mode = self.plugin.get_config("send.image_mode", "random").lower()
         ai_probability = self.plugin.get_config("send.ai_probability", 0.5)
         image_number = self.plugin.get_config("send.image_number", 1)
-        host = self.plugin.get_config("plugin.http_host", "127.0.0.1")
         # 更新cookies
         try:
-            await renew_cookies(port, napcat_token, host)
+            await renew_cookies(host, port, napcat_token)
         except Exception as e:
             logger.error(f"更新cookies失败: {str(e)}")
             return
@@ -2156,7 +2156,6 @@ class ScheduleSender:
         prompt += "\n只输出一条说说正文的内容，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )"
 
         show_prompt = self.plugin.get_config("models.show_prompt", False)
-        show_prompt = self.get_config("models.show_prompt", False)
         if show_prompt:
             logger.info(f"生成说说prompt内容：{prompt}")
 
@@ -2167,7 +2166,7 @@ class ScheduleSender:
             temperature=0.3,
             max_tokens=1000
         )
-        
+
         # 兼容不同的返回值格式
         if len(result) == 4:
             success, story, reasoning, model_name = result
@@ -2181,7 +2180,6 @@ class ScheduleSender:
             return False, "生成说说内容失败", True
 
         logger.info(f"成功生成说说内容：'{story}'")
-
         # 检查apikey
         if image_mode != "only_emoji" and not apikey:
             logger.error('请填写apikey')
@@ -2203,7 +2201,7 @@ class MaizonePlugin(BasePlugin):
 
     plugin_name = "Maizone"
     plugin_description = "让麦麦实现QQ空间点赞、评论、发说说"
-    plugin_version = "1.3.1"
+    plugin_version = "1.3.2"
     plugin_author = "internetsb"
     enable_plugin = True
     config_file_name = "config.toml"
@@ -2221,8 +2219,8 @@ class MaizonePlugin(BasePlugin):
     config_schema = {
         "plugin": {
             "enable": ConfigField(type=bool, default=True, description="是否启用插件"),
-            "http_port": ConfigField(type=str, default='9999', description="Napcat设定http服务器端口号"),
             "http_host": ConfigField(type=str, default='127.0.0.1', description="Napcat设定http服务器地址"),
+            "http_port": ConfigField(type=str, default='9999', description="Napcat设定http服务器端口号"),
             "napcat_token": ConfigField(type=str, default="", description="Napcat服务认证Token（默认为空）"),
         },
         "models": {
@@ -2242,8 +2240,6 @@ class MaizonePlugin(BasePlugin):
                                           description="random模式下使用AI图片的概率(0-1)"),
             "image_number": ConfigField(type=int, default=1,
                                         description="使用的图片数量(范围1至4)"),
-            "image_directory": ConfigField(type=str, default="./plugins/Maizone/images",
-                                           description="图片存储目录")
         },
         "read": {
             "permission": ConfigField(type=list, default=['114514', '1919810', ],
