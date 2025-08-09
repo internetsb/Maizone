@@ -132,7 +132,7 @@ async def fetch_cookies(host: str, domain: str, port: str, napcat_token: str = "
     raise RuntimeError(f"无法连接到Napcat服务: 超过最大重试次数({max_retries})")
 
 
-async def renew_cookies(port: str, napcat_token: str = ""):
+async def renew_cookies(port: str, napcat_token: str = "", host: str = "127.0.0.1"):
     """
     更新QQ空间的cookie文件，存入相应目录
 
@@ -151,7 +151,7 @@ async def renew_cookies(port: str, napcat_token: str = ""):
         httpx.RequestError: 网络请求异常。
     """
     domain = "user.qzone.qq.com"
-    host = os.getenv("HOST")
+    # host参数现在通过函数参数传递，而不是使用self.get_config
     try:
         cookie_data = await fetch_cookies(host, domain, port, napcat_token)
     except httpx.RequestError as e:
@@ -175,6 +175,12 @@ async def renew_cookies(port: str, napcat_token: str = ""):
         parsed_cookies = parse_cookie_string(cookie_str)
         uin = extract_uin_from_cookie(cookie_str)
         file_path = get_cookie_file_path(uin)
+        
+        # 确保目录存在
+        directory = os.path.dirname(file_path)
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+            
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(parsed_cookies, f, indent=4, ensure_ascii=False)
         logger.info(f"[OK] cookies 已保存至: {file_path}")
@@ -1422,21 +1428,27 @@ class SendFeedCommand(BaseCommand):
         # 核心配置
         qq_account = config_api.get_global_config("bot.qq_account", "")
         port = self.get_config("plugin.http_port", "9999")
+        host = self.get_config("plugin.http_host", "127.0.0.1")
         napcat_token = self.get_config("plugin.napcat_token", "")
         # 生成图片相关配置
         enable_image = self.get_config("send.enable_image", "true")
         image_dir = self.get_config("send.image_directory", "./images")
         apikey = os.getenv("SILICONFLOW_KEY")
         image_mode = self.get_config("send.image_mode", "random").lower()
+        image_mode = self.get_config("send.image_mode", "random").lower()
         ai_probability = self.get_config("send.ai_probability", 0.5)
         image_number = self.get_config("send.image_number", 1)
 
+        if image_mode != "only_emoji" and not apikey:
+            logger.error('请填写apikey')
+            image_mode = "only_emoji"  # 如果没有apikey，则只使用表情包
+
         # 更新cookies
         try:
-            await renew_cookies(port, napcat_token)
+            await renew_cookies(port, napcat_token, host)
         except Exception as e:
             logger.error(f"更新cookies失败: {str(e)}")
-            return False, "更新cookies失败", True
+            return False, "更新cookies失败"
 
         if topic:
             prompt = f"""
@@ -1716,10 +1728,11 @@ class ReadFeedAction(BaseAction):
         port = self.get_config("plugin.http_port", "9999")
         qq_account = config_api.get_global_config("bot.qq_account", "")
         napcat_token = self.get_config("plugin.napcat_token", "")
+        host = self.get_config("plugin.http_host", "127.0.0.1")
 
         # 更新cookies
         try:
-            await renew_cookies(port, napcat_token)
+            await renew_cookies(port, napcat_token, host)
         except Exception as e:
             logger.error(f"更新cookies失败: {str(e)}")
             return False, "更新cookies失败"
@@ -1886,6 +1899,7 @@ class FeedMonitor:
         qq_account = config_api.get_global_config("bot.qq_account", "")
         port = self.plugin.get_config("plugin.http_port", "9999")
         napcat_token = self.plugin.get_config("plugin.napcat_token", "")
+        host = self.plugin.get_config("plugin.http_host", "127.0.0.1")
         show_prompt = self.plugin.get_config("models.show_prompt", False)
         #模型配置
         models = llm_api.get_available_models()
@@ -1899,7 +1913,7 @@ class FeedMonitor:
 
         # 更新cookies
         try:
-            await renew_cookies(port, napcat_token)
+            await renew_cookies(port, napcat_token, host)
         except Exception as e:
             logger.error(f"更新cookies失败: {str(e)}")
             return False, "更新cookies失败"
@@ -1970,9 +1984,9 @@ class FeedMonitor:
                         if not success:
                             return False, "生成回复内容失败"
 
-                        logger.info(f"成功生成回复内容：'{reply}'，即将发送")
+                        logger.info(f"正在回复{comment['nickname']}的评论：{comment['content']}...")
 
-                        await renew_cookies(port, napcat_token)
+                        await renew_cookies(port, napcat_token, host)
                         success = await reply_feed(fid, qq_account, target_qq, comment['nickname'], reply,
                                                    comment['comment_tid'])
                         if not success:
@@ -2099,7 +2113,7 @@ class ScheduleSender:
         random_topic = self.plugin.get_config("schedule.random_topic", True)
         fixed_topics = self.plugin.get_config("schedule.fixed_topics", ["日常生活", "心情分享", "有趣见闻"])
         # 人格配置
-        bot_personality = config_api.get_global_config("personality.personality_core", "一个机器人")
+        bot_personality = config_api.get_global_config("personality.personality_core", "一个蓝发猫娘")
         bot_expression = config_api.get_global_config("expression.expression_style", "内容积极向上")
         # 核心配置
         qq_account = config_api.get_global_config("bot.qq_account", "")
@@ -2112,9 +2126,10 @@ class ScheduleSender:
         image_mode = self.plugin.get_config("send.image_mode", "random").lower()
         ai_probability = self.plugin.get_config("send.ai_probability", 0.5)
         image_number = self.plugin.get_config("send.image_number", 1)
+        host = self.plugin.get_config("plugin.http_host", "127.0.0.1")
         # 更新cookies
         try:
-            await renew_cookies(port, napcat_token)
+            await renew_cookies(port, napcat_token, host)
         except Exception as e:
             logger.error(f"更新cookies失败: {str(e)}")
             return
@@ -2141,22 +2156,32 @@ class ScheduleSender:
         prompt += "\n只输出一条说说正文的内容，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )"
 
         show_prompt = self.plugin.get_config("models.show_prompt", False)
+        show_prompt = self.get_config("models.show_prompt", False)
         if show_prompt:
             logger.info(f"生成说说prompt内容：{prompt}")
 
-        success, story, reasoning, model_name = await llm_api.generate_with_model(
+        result = await llm_api.generate_with_model(
             prompt=prompt,
             model_config=model_config,
             request_type="story.generate",
             temperature=0.3,
             max_tokens=1000
         )
+        
+        # 兼容不同的返回值格式
+        if len(result) == 4:
+            success, story, reasoning, model_name = result
+        elif len(result) == 3:
+            success, story, reasoning = result
+        else:
+            logger.error(f"LLM返回值格式不正确: {result}")
+            return False, "生成说说内容失败", True
 
         if not success:
-            logger.error("生成说说内容失败")
-            return
+            return False, "生成说说内容失败", True
 
-        logger.info(f"定时任务生成说说内容：'{story}'")
+        logger.info(f"成功生成说说内容：'{story}'")
+
         # 检查apikey
         if image_mode != "only_emoji" and not apikey:
             logger.error('请填写apikey')
@@ -2197,6 +2222,7 @@ class MaizonePlugin(BasePlugin):
         "plugin": {
             "enable": ConfigField(type=bool, default=True, description="是否启用插件"),
             "http_port": ConfigField(type=str, default='9999', description="Napcat设定http服务器端口号"),
+            "http_host": ConfigField(type=str, default='127.0.0.1', description="Napcat设定http服务器地址"),
             "napcat_token": ConfigField(type=str, default="", description="Napcat服务认证Token（默认为空）"),
         },
         "models": {
