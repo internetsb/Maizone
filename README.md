@@ -54,7 +54,7 @@ Maizone（麦麦空间）插件v1.3.2，让你的麦麦发说说，读QQ空间�
 
 > [!IMPORTANT]
 >
-> Docker用户可将Napcat的HTTP Server的Host栏改为core（或0.0.0.0），插件的config.toml中的http_host栏改为napcat
+> Docker用户可将Napcat的HTTP Server的Host栏改为core（或0.0.0.0），插件的config.toml中的http_host栏改为napcat。经测试亦可正常使用
 
 
 
@@ -82,3 +82,4 @@ Maizone（麦麦空间）插件v1.3.2，让你的麦麦发说说，读QQ空间�
 部分代码来自仓库：https://github.com/gfhdhytghd/qzone-toolkit
 
 感谢[xc94188](https://github.com/xc94188)、[myxxr](https://github.com/myxxr)、[UnCLAS-Prommer](https://github.com/UnCLAS-Prommer)提供的功能改进
+
