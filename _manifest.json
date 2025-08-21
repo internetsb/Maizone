@@ -10,7 +10,7 @@
   "license": "AGPL-v3.0",
   
   "host_application": {
-    "min_version": "0.10.0",
+    "min_version": "0.8.0",
     "max_version": "0.10.0"
   },
   "homepage_url": "https://github.com/internetsb/Maizone",
@@ -39,3 +39,4 @@
     ]
   }
 }
+
