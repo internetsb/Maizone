@@ -66,6 +66,8 @@ class SendFeedCommand(BaseCommand):
         image_mode = self.get_config("send.image_mode", "random").lower()
         ai_probability = self.get_config("send.ai_probability", 0.5)
         image_number = self.get_config("send.image_number", 1)
+        # 说说生成相关配置
+        history_number = self.get_config("send.history_number", 5)
 
         # 更新cookies
         try:
@@ -91,7 +93,7 @@ class SendFeedCommand(BaseCommand):
             """
 
         prompt += "\n以下是你以前发过的说说，写新说说时注意不要在相隔不长的时间发送相同主题的说说]\n"
-        prompt += await qzone.get_send_history()
+        prompt += await qzone.get_send_history(history_number)
         prompt += "\n不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )"
 
         show_prompt = self.get_config("models.show_prompt", False)

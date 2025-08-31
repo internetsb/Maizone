@@ -14,7 +14,7 @@ class MaizonePlugin(BasePlugin):
     """Maizone插件 - 让麦麦发QQ空间"""
     plugin_name = "MaizonePlugin"
     plugin_description = "让麦麦实现QQ空间点赞、评论、发说说"
-    plugin_version = "2.0.0"
+    plugin_version = "2.0.1"
     plugin_author = "internetsb"
     enable_plugin = True
     config_file_name = "config.toml"
@@ -52,6 +52,7 @@ class MaizonePlugin(BasePlugin):
                                       description="图片使用方式: only_ai(仅AI生成)/only_emoji(仅表情包)/random(随机混合)"),
             "ai_probability": ConfigField(type=float, default=0.5, description="random模式下使用AI图片的概率(0-1)"),
             "image_number": ConfigField(type=int, default=1, description="使用的图片数量(范围1至4)"),
+            "history_number": ConfigField(type=int, default=5, description="生成说说时参考的历史说说数量，越多越能避免重复内容" ),
         },
         "read": {
             "permission": ConfigField(type=list, default=['114514', '1919810', ],

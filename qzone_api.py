@@ -620,6 +620,7 @@ class QzoneAPI:
             # 3. 提取说说内容
         try:
             feeds_list = []
+            num_self = 0 # 记录自己的说说数量
             for feed in data:
                 if not feed:  # 跳过None值
                     continue
@@ -655,9 +656,11 @@ class QzoneAPI:
                 if data_islike == '1':
                     is_read = True
 
-                # 只处理未读说说
+                # 只处理未读说说和自己的说说
                 if is_read and target_qq != str(self.uin):
                     continue
+                if target_qq == str(self.uin):
+                    num_self += 1
                 # 提取文字内容
                 text_div = soup.find('div', class_='f-info')
                 text = text_div.get_text(strip=True) if text_div else ""
@@ -748,13 +751,13 @@ class QzoneAPI:
                     'comments': comments_list,
                 })
 
-            logger.info(f"成功解析 {len(feeds_list)} 条说说")
+            logger.info(f"成功解析 {len(feeds_list)} 条说说，其中自己的说说有 {num_self} 条")
             return feeds_list
         except Exception as e:
             logger.error(f'解析说说错误：{str(e)}', exc_info=True)
             return []
 
-    async def get_send_history(self) -> str:
+    async def get_send_history(self, num:int) -> str:
         """
         获取指定QQ号的说说发送历史。
 
@@ -764,7 +767,7 @@ class QzoneAPI:
         Raises:
             Exception: 如果请求失败或响应状态码不是200，将抛出异常。
         """
-        feeds_list = await self.get_list(target_qq=str(self.uin), num=5)
+        feeds_list = await self.get_list(target_qq=str(self.uin), num=num)
         history = "==================="
         for feed in feeds_list:
             if not feed.get("rt_con", ""):
