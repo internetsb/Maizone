@@ -3,7 +3,10 @@ import time
 import random
 import datetime
 import traceback
+from typing import List, Dict
 from pathlib import Path
+import os
+import json
 
 from src.common.logger import get_logger
 from src.plugin_system.apis import llm_api, config_api
@@ -44,21 +47,45 @@ class FeedMonitor:
                 pass
         logger.info("说说监控任务已停止")
 
+    def _load_processed_comments(self) -> Dict[str, List[str]]:
+        """从文件加载已处理评论"""
+        file_path = str(Path(__file__).parent.resolve() / "processed_comments.json")
+
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.error(f"加载已处理评论失败: {str(e)}")
+
+        return {}
+
+    def _save_processed_comments(self, processed_comments: Dict[str, List[str]]):
+        """保存已处理评论到文件"""
+        try:
+            file_path = str(Path(__file__).parent.resolve() / "processed_comments.json")
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(processed_comments, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error(f"保存已处理评论失败: {str(e)}")
+
     async def _monitor_loop(self):
         """监控循环"""
+        # 获取配置
+        interval = self.plugin.get_config("monitor.interval_minutes", 5)
+        read_num = self.plugin.get_config("monitor.read_num", 3)
+        # 记录已处理评论，说说id映射已处理评论列表
+        processed_comments = self._load_processed_comments()
         while self.is_running:
             try:
-                # 获取配置
-                interval = self.plugin.get_config("monitor.interval_minutes", 5)
-                read_num = 3
-
                 # 等待指定时间
                 await asyncio.sleep(interval * 60)
-
                 # 执行监控任务
-                await self.check_feeds(read_num)
-
+                await self.check_feeds(read_num, processed_comments)
+                # 保存已处理评论到文件
+                self._save_processed_comments(processed_comments)
             except asyncio.CancelledError:
+                self._save_processed_comments(processed_comments)
                 break
             except Exception as e:
                 logger.error(f"监控任务出错: {str(e)}")
@@ -66,7 +93,7 @@ class FeedMonitor:
                 # 出错后等待一段时间再重试
                 await asyncio.sleep(300)
 
-    async def check_feeds(self, read_num: int):
+    async def check_feeds(self, read_num: int, processed_comments: Dict[str, List[str]]):
         """检查好友说说"""
 
         qq_account = config_api.get_global_config("bot.qq_account", "")
@@ -118,18 +145,17 @@ class FeedMonitor:
                     if not enable_auto_reply:
                         continue
                     # 获取未回复的评论
-                    ignored_tids = []  # 已回复的评论tid
                     list_to_reply = []  # 待回复的评论
                     if comments_list:
-                        #print(comments_list)
                         for comment in comments_list:
-                            if comment['parent_tid'] and comment['qq_account'] == qq_account:
-                                ignored_tids.append(comment['parent_tid'])
-                        list_to_reply = [
-                            comment for comment in comments_list
-                            if comment['parent_tid'] is None  # 只考虑主评论
-                               and comment['comment_tid'] not in ignored_tids  # 没有被bot回复过
-                        ]
+                            if comment['parent_tid'] is None:  # 只考虑主评论
+                                if comment['comment_tid'] not in processed_comments.get(fid, []): # 只考虑未处理过的评论
+                                    list_to_reply.append(comment) # 添加到待回复列表
+                                    processed_comments.setdefault(fid, []).append(comment['comment_tid']) # 记录到已处理评论
+                                    if len(processed_comments) > read_num:
+                                        # 为防止字典无限增长，限制字典大小
+                                        oldest_fid = next(iter(processed_comments))
+                                        processed_comments.pop(oldest_fid)
 
                     if not list_to_reply:
                         continue

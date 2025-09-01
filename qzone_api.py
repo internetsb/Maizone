@@ -367,26 +367,19 @@ class QzoneAPI:
         """
         uin = self.uin
         post_data = {
-            "topicId": f'{uin}_{fid}__1',
-            "uin": uin,
-            "hostUin": uin,
-            "feedsType": 100,
-            "inCharset": "utf-8",
-            "outCharset": "utf-8",
-            "plat": "qzone",
-            "source": "ic",
-            "platformid": 52,
-            "format": "fs",
-            "ref": "feeds",
-            "content": f"@{{uin:{target_qq},nick:{target_nickname},auto:1}} {content}",
-            "commentId": comment_tid,
-            "commentUin": target_qq,
-            "richval": "",  # 富文本内容
-            "richtype": "",  # 富文本类型
-            "private": "0",  # 是否私密评论
-            "paramstr": "2",
-            "qzreferrer": f"https://user.qzone.qq.com/{self.uin}/main"  # 来源页
-        }
+                "topicId": f"{uin}_{fid}__1",  # 使用标准评论格式，而不是针对特定评论
+                "uin": uin,
+                "hostUin": uin,
+                "content": f"回复@{target_nickname}：{content}",  # 内容中明确标示回复对象
+                "format": "fs",
+                "plat": "qzone",
+                "source": "ic",
+                "platformid": 52,
+                "ref": "feeds",
+                "richtype": "",
+                "richval": "",
+                "paramstr": f"@{target_nickname}",  # 确保触发@提醒机制
+                }
         res = await self.do(
             method="POST",
             url=self.REPLY_URL,
@@ -395,14 +388,7 @@ class QzoneAPI:
             },
             data=post_data,
             headers={
-                "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-                "Sec-Fetch-Dest": "empty",
-                "Sec-Fetch-Mode": "cors",
-                "Sec-Fetch-Site": "same-site",
-                "TE": "trailers",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
-                "Referer": f"https://user.qzone.qq.com/",
-                "Origin": "https://user.qzone.qq.com",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
             },
         )
         if res.status_code == 200:
