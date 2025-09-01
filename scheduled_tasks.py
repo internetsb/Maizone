@@ -108,7 +108,7 @@ class FeedMonitor:
         if not model_config:
             return False, "未配置LLM模型"
 
-        bot_personality = config_api.get_global_config("personality.personality_core", "一个机器人")
+        bot_personality = config_api.get_global_config("personality.personality", "一个机器人")
         bot_expression = config_api.get_global_config("personality.reply_style", "内容积极向上")
 
         # 更新cookies
@@ -311,7 +311,7 @@ class ScheduleSender:
         random_topic = self.plugin.get_config("schedule.random_topic", True)
         fixed_topics = self.plugin.get_config("schedule.fixed_topics", ["日常生活", "心情分享", "有趣见闻"])
         # 人格配置
-        bot_personality = config_api.get_global_config("personality.personality_core", "一个蓝发猫娘")
+        bot_personality = config_api.get_global_config("personality.personality", "一个蓝发猫娘")
         bot_expression = config_api.get_global_config("personality.reply_style", "内容积极向上")
         # 核心配置
         qq_account = config_api.get_global_config("bot.qq_account", "")

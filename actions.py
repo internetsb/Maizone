@@ -94,7 +94,7 @@ class SendFeedAction(BaseAction):
         if not model_config:
             return False, "未配置LLM模型"
         # 人格配置
-        bot_personality = config_api.get_global_config("personality.personality_core", "一个机器人")
+        bot_personality = config_api.get_global_config("personality.personality", "一个机器人")
         bot_expression = config_api.get_global_config("personality.reply_style", "内容积极向上")
         # 核心配置
         port = self.get_config("plugin.http_port", "9999")
@@ -276,7 +276,7 @@ class ReadFeedAction(BaseAction):
         if not model_config:
             return False, "未配置LLM模型"
 
-        bot_personality = config_api.get_global_config("personality.personality_core", "一个机器人")
+        bot_personality = config_api.get_global_config("personality.personality", "一个机器人")
         bot_expression = config_api.get_global_config("personality.reply_style", "内容积极向上")
         #错误处理，如对方设置了访问权限
         if 'error' in feeds_list[0]:

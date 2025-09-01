@@ -14,7 +14,7 @@ class MaizonePlugin(BasePlugin):
     """Maizone插件 - 让麦麦发QQ空间"""
     plugin_name = "MaizonePlugin"
     plugin_description = "让麦麦实现QQ空间点赞、评论、发说说"
-    plugin_version = "2.1.1"
+    plugin_version = "2.1.2"
     plugin_author = "internetsb"
     enable_plugin = True
     config_file_name = "config.toml"

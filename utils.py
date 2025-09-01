@@ -18,9 +18,7 @@ plugin_config = component_registry.get_plugin_config('MaizonePlugin')
 models = llm_api.get_available_models()
 prompt_model = config_api.get_plugin_config(plugin_config, "models.text_model", "replyer")  # 获取模型配置
 model_config = models[prompt_model]
-personality_core = config_api.get_global_config("personality.personality_core", "一只猫娘") # 核心特质
-personality_side = config_api.get_global_config("personality.personality_side", "喜欢水群做复读机") # 人格侧面
-bot_identity = config_api.get_global_config("personality.identity", "女神是那种非常典雅的长相，有点像罗马人石塑，五官立体皮肤白皙，眼角有一颗痣点缀，气质清新脱俗。") # 外貌身份
+personality = config_api.get_global_config("personality.personality", "一只猫娘") # 人格
 async def generate_image_by_sf(api_key: str, story: str, image_dir: str, batch_size: int = 1) -> bool:
     """
     用siliconflow API生成说说配图保存至对应路径
@@ -37,10 +35,10 @@ async def generate_image_by_sf(api_key: str, story: str, image_dir: str, batch_s
     """
     logger.info(f"正在生成图片提示词...")
     # 生成图片提示词
-    global  bot_identity, personality_core, personality_side
+    global personality
     prompt = f"""
         请根据以下QQ空间说说内容配图，并构建生成配图的风格和prompt。
-        说说主人信息：'[核心人格]{personality_core},[人格侧面]{personality_side},[身份信息]{bot_identity}'。
+        说说主人信息：'{personality}'。
         说说内容:'{story}'。 
         请注意：仅回复用于生成图片的prompt，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )
         """

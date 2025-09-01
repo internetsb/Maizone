@@ -52,7 +52,7 @@ class SendFeedCommand(BaseCommand):
         if not model_config:
             return False, "未配置LLM模型", True
         # 人格配置
-        bot_personality = config_api.get_global_config("personality.personality_core", "一个机器人")
+        bot_personality = config_api.get_global_config("personality.personality", "一个机器人")
         bot_expression = config_api.get_global_config("personality.reply_style", "内容积极向上")
         # 核心配置
         qq_account = config_api.get_global_config("bot.qq_account", "")
