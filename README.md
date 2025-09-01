@@ -3,7 +3,7 @@
 <u>制作者水平稀烂，任何bug或建议请联系qq：1523640161</u>
 
 ## 概述
-Maizone（麦麦空间）插件v2.0.1，让你的麦麦发说说，读QQ空间，点赞评论！
+Maizone（麦麦空间）插件v2.1.0，让你的麦麦发说说，读QQ空间，点赞评论！
 
 ## 功能
 - **发说说**: 当用户说"说说"、"qq空间"、"动态"时麦麦会决定是否发说说和说说的主题
@@ -44,11 +44,11 @@ Maizone（麦麦空间）插件v2.0.1，让你的麦麦发说说，读QQ空间�
 
 4. 启动一次麦麦自动生成`config.toml`配置文件，成功生成配置文件即说明读取插件成功
 
-### 设置Napcat http服务器端口
+### 设置Napcat http服务器端口以获取cookie
 
-![](napcat1.png)
+![](images/done_napcat1.png)
 
-![](napcat2.png)
+![](images/done_napcat2.png)
 
 启用后在配置文件config.toml（若无则先启动一次）中填写上在napcat中设置的host（默认127.0.0.1）和端口号（默认9999）用于获取cookie
 
@@ -56,7 +56,9 @@ Maizone（麦麦空间）插件v2.0.1，让你的麦麦发说说，读QQ空间�
 >
 > Docker用户可将Napcat的HTTP Server的Host栏改为core（或0.0.0.0），插件的config.toml中的http_host栏改为napcat。经测试亦可正常使用
 
-插件*内置了两个方法用于自动获取cookie，如果还是不行但还是想用的话自己爬出cookie把目录自带的json填上吧（*
+**备用方案操作步骤：用浏览器登录QQ空间并挂在后台**
+
+插件*内置了两个方法用于自动获取cookie，如果还是不行但还是想用的话自己定时爬出cookie把目录自带的json填上吧（*
 
 ### 修改配置文件
 请设置：
