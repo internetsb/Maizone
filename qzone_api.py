@@ -463,14 +463,14 @@ class QzoneAPI:
             # 3. 提取说说内容
             feeds_list = []
             for msg in json_data.get("msglist", []):
-                #已评论过的说说不再阅读
+                # 已评论过的说说不再阅读
                 is_comment = False
                 if 'commentlist' in msg:
                     commentlist = msg.get("commentlist")
                     if isinstance(commentlist, list):  # 确保一定是可迭代的列表
                         for comment in commentlist:
                             qq_nickname = comment.get("name")
-                            if uin_nickname == qq_nickname:
+                            if uin_nickname == qq_nickname and target_qq != str(self.uin): # 已评论且不是自己的说说
                                 logger.info('已评论过此说说，即将跳过')
                                 is_comment = True
                                 break
