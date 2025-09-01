@@ -40,7 +40,7 @@ Maizone（麦麦空间）插件v2.1.0，让你的麦麦发说说，读QQ空间�
    uv pip install -r .\requirements.txt -i https://mirrors.aliyun.com/pypi/simple --upgrade
    ```
 
-   <u>一键包用户可在启动时安装MaiBot\plugins\Maizone\requirements.txt</u>中的依赖
+   <u>一键包用户可在启动时选择交互式安装pip模块，逐行安装MaiBot\plugins\Maizone\requirements.txt</u>中的依赖
 
 4. 启动一次麦麦自动生成`config.toml`配置文件，成功生成配置文件即说明读取插件成功
 
@@ -86,3 +86,4 @@ Maizone（麦麦空间）插件v2.1.0，让你的麦麦发说说，读QQ空间�
 感谢[xc94188](https://github.com/xc94188)、[myxxr](https://github.com/myxxr)、[UnCLAS-Prommer](https://github.com/UnCLAS-Prommer)提供的功能改进
 
 Maibot-Plus团队的魔改插件，神秘群号：169850076
+
