@@ -1,6 +1,6 @@
 # Maizone（麦麦空间） 插件
 
-<u>制作者水平稀烂，任何bug或建议请联系qq：1523640161</u>
+<u>制作者水平稀烂，任何疑问或bug或建议请联系qq：1523640161</u>
 
 ## 概述
 Maizone（麦麦空间）插件v2.1.2，让你的麦麦发说说，读QQ空间，点赞评论！
@@ -14,7 +14,7 @@ Maizone（麦麦空间）插件v2.1.2，让你的麦麦发说说，读QQ空间�
 
 - **权限管理**：在config.toml中指定谁可以让麦麦读说说或发说说
 
-- **自动阅读**：开启此功能让麦麦秒赞秒评新说说，回复评论（谨慎开启回复评论）
+- **自动阅读**：开启此功能让麦麦秒赞秒评新说说，回复评论
 
 - **定时发送**：开启此功能让麦麦定时发说说
 
@@ -32,15 +32,14 @@ Maizone（麦麦空间）插件v2.1.2，让你的麦麦发说说，读QQ空间�
 3. 安装相应依赖，示例：
 
    ```bash
-   #在MaiBot文件夹下
+   #pip安装，在MaiBot文件夹下
    .\venv\Scripts\activate
    cd .\plugins\Maizone\
    pip install -i https://mirrors.aliyun.com/pypi/simple -r .\requirements.txt --upgrade
-   #uv安装,在plugins\Maizone文件夹下
+   #uv安装，在plugins\Maizone文件夹下
    uv pip install -r .\requirements.txt -i https://mirrors.aliyun.com/pypi/simple --upgrade
+   #一键包用户可在启动时选择交互式安装pip模块，逐行安装MaiBot\plugins\Maizone\requirements.txt中的依赖
    ```
-
-   <u>一键包用户可在启动时选择交互式安装pip模块，逐行安装MaiBot\plugins\Maizone\requirements.txt</u>中的依赖
 
 4. 启动一次麦麦自动生成`config.toml`配置文件，成功生成配置文件即说明读取插件成功
 
@@ -56,7 +55,7 @@ Maizone（麦麦空间）插件v2.1.2，让你的麦麦发说说，读QQ空间�
 >
 > Docker用户可将Napcat的HTTP Server的Host栏改为core（或0.0.0.0），插件的config.toml中的http_host栏改为napcat。经测试亦可正常使用
 
-**备用方案操作步骤：用浏览器登录QQ空间并挂在后台**
+**备用方案操作步骤：若连接Napcat失败，请用浏览器登录QQ空间并挂在后台**
 
 插件*内置了两个方法用于自动获取cookie，如果还是不行但还是想用的话自己定时爬出cookie把目录自带的json填上吧（*
 
@@ -85,5 +84,6 @@ Maizone（麦麦空间）插件v2.1.2，让你的麦麦发说说，读QQ空间�
 
 感谢[xc94188](https://github.com/xc94188)、[myxxr](https://github.com/myxxr)、[UnCLAS-Prommer](https://github.com/UnCLAS-Prommer)提供的功能改进
 
-Maibot-Plus团队的魔改插件，神秘群号：169850076
+魔改版麦麦，集成了魔改版插件[MoFox_Bot](https://github.com/MoFox-Studio/MoFox_Bot)
+
 
