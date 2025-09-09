@@ -44,7 +44,7 @@ Maizone（麦麦空间）插件v2.1.2，让你的麦麦发说说，读QQ空间�
    #一键包用户可在启动时选择交互式安装pip模块，逐行安装MaiBot\plugins\Maizone\requirements.txt中的依赖
    ```
 
-4. 启动一次麦麦自动生成`config.toml`配置文件，成功生成配置文件即说明读取插件成功
+4. 启动一次麦麦自动生成`config.toml`配置文件，成功生成配置文件即说明读取插件成功（未生成配置文件请检查启动麦麦时的加载插件日志）
 
 ### 设置Napcat http服务器端口以获取cookie
 
@@ -56,7 +56,7 @@ Maizone（麦麦空间）插件v2.1.2，让你的麦麦发说说，读QQ空间�
 
 > [!IMPORTANT]
 >
-> Docker用户可将Napcat的HTTP Server的Host栏改为core（或0.0.0.0），插件的config.toml中的http_host栏改为napcat。经测试亦可正常使用
+> Docker用户可将Napcat的HTTP Server的Host栏改为core（或0.0.0.0[不推荐]），插件的config.toml中的http_host栏改为napcat。经测试亦可正常使用
 
 **备用方案操作步骤：若连接Napcat失败，请用浏览器登录QQ空间并挂在后台**
 
@@ -88,6 +88,7 @@ Maizone（麦麦空间）插件v2.1.2，让你的麦麦发说说，读QQ空间�
 感谢[xc94188](https://github.com/xc94188)、[myxxr](https://github.com/myxxr)、[UnCLAS-Prommer](https://github.com/UnCLAS-Prommer)提供的功能改进
 
 魔改版麦麦，集成了魔改版插件[MoFox_Bot](https://github.com/MoFox-Studio/MoFox_Bot)
+
 
 
 
