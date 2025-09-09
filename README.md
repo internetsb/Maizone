@@ -1,5 +1,7 @@
 # Maizone（麦麦空间） 插件
-
+> [!IMPORTANT]
+>
+> 由于近期出现对公开端口的恶性攻击，为了您的安全，请设置Token。操作方法：在设置http服务器时面板最下方的Token栏中填入密码，在生成的config.toml文件中填写该密码
 <u>制作者水平稀烂，任何疑问或bug或建议请联系qq：1523640161</u>
 
 ## 概述
@@ -85,5 +87,6 @@ Maizone（麦麦空间）插件v2.1.2，让你的麦麦发说说，读QQ空间�
 感谢[xc94188](https://github.com/xc94188)、[myxxr](https://github.com/myxxr)、[UnCLAS-Prommer](https://github.com/UnCLAS-Prommer)提供的功能改进
 
 魔改版麦麦，集成了魔改版插件[MoFox_Bot](https://github.com/MoFox-Studio/MoFox_Bot)
+
 
 
