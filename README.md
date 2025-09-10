@@ -6,7 +6,7 @@
 <u>制作者水平稀烂，任何疑问或bug或建议请联系qq：1523640161</u>
 
 ## 概述
-Maizone（麦麦空间）插件v2.1.2，让你的麦麦发说说，读QQ空间，点赞评论！
+Maizone（麦麦空间）插件v2.1.3，让你的麦麦发说说，读QQ空间，点赞评论！
 
 ## 功能
 - **发说说**: 当用户说"说说"、"qq空间"、"动态"时麦麦会决定是否发说说和说说的主题
@@ -88,6 +88,7 @@ Maizone（麦麦空间）插件v2.1.2，让你的麦麦发说说，读QQ空间�
 感谢[xc94188](https://github.com/xc94188)、[myxxr](https://github.com/myxxr)、[UnCLAS-Prommer](https://github.com/UnCLAS-Prommer)提供的功能改进
 
 魔改版麦麦，集成了魔改版插件[MoFox_Bot](https://github.com/MoFox-Studio/MoFox_Bot)
+
 
 
 
