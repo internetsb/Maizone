@@ -298,6 +298,7 @@ class QzoneAPI:
             },
         )
         if res.status_code == 200:
+            logger.debug(f"点赞响应: {res.text}")
             return True
         else:
             raise Exception("点赞失败: " + res.text)
@@ -412,7 +413,7 @@ class QzoneAPI:
 
         Returns:
             list[dict[str, Any]]: 包含说说信息的字典列表，每条字典包含说说的ID（tid）、发布时间（created_time）、内容（content）、图片（images）、视频（videos）及转发内容（rt_con）。
-
+            若发生错误，则返回包含错误信息的字典列表。如['error': '错误信息']。
         Raises:
             Exception: 如果请求失败或响应状态码不是200，将抛出异常。
             Exception: 如果解析JSON数据失败，将返回包含错误信息的字典列表。
@@ -544,7 +545,7 @@ class QzoneAPI:
             return feeds_list
 
         except Exception as e:
-            #logger.error(str(json_data))
+            logger.error(str(json_data))
             return [{"error": f'{e},你没有看到任何东西'}]
 
     async def monitor_get_list(self, num: int) -> list[dict[str, Any]]:

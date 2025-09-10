@@ -59,8 +59,7 @@ class SendFeedAction(BaseAction):
             logger.error(f"未找到用户 {user_name} 的user_id")
             success, response = await generator_api.generate_reply(
                 chat_stream=self.chat_stream,
-                action_data={
-                    "extra_info_block": f'你不认识{user_name}，请用符合你人格特点的方式拒绝请求'}
+                extra_info=f'你不认识{user_name}，请用符合你人格特点的方式拒绝请求'
             )
 
             if success and response:
@@ -72,7 +71,7 @@ class SendFeedAction(BaseAction):
             logger.info(f"{user_id}无{self.action_name}权限")
             success, response, = await generator_api.generate_reply(
                 chat_stream=self.chat_stream,
-                action_data={"extra_info_block": f'{user_name}无权命令你发送说说，请用符合你人格特点的方式拒绝请求'}
+                extra_info=f'{user_name}无权命令你发送说说，请用符合你人格特点的方式拒绝请求'
             )
 
             if success and response:
@@ -163,7 +162,7 @@ class SendFeedAction(BaseAction):
         # 生成回复
         success, response = await generator_api.generate_reply(
             chat_stream=self.chat_stream,
-            action_data={"extra_info_block": f'你刚刚发了一条说说，内容为{story}'}
+            extra_info=f'你刚刚发了一条说说，内容为{story}'
         )
 
         if success and response:
@@ -222,8 +221,7 @@ class ReadFeedAction(BaseAction):
             logger.error(f"未找到用户 {user_name} 的user_id")
             success, response = await generator_api.generate_reply(
                 chat_stream=self.chat_stream,
-                action_data={
-                    "extra_info_block": f'你不认识{user_name}，请用符合你人格特点的方式拒绝请求'}
+                extra_info=f'你不认识{user_name}，请用符合你人格特点的方式拒绝请求'
             )
 
             if success and response:
@@ -235,7 +233,7 @@ class ReadFeedAction(BaseAction):
             logger.info(f"{user_id}无{self.action_name}权限")
             success, response = await generator_api.generate_reply(
                 chat_stream=self.chat_stream,
-                action_data={"extra_info_block": f'{user_name}无权命令你阅读说说，请用符合人格的方式进行拒绝的回复'}
+                extra_info=f'{user_name}无权命令你阅读说说，请用符合人格的方式进行拒绝的回复'
             )
             if success and response:
                 for (reply_type, reply_content) in response.reply_set:
@@ -282,7 +280,7 @@ class ReadFeedAction(BaseAction):
         if 'error' in feeds_list[0]:
             success, response = await generator_api.generate_reply(
                 chat_stream=self.chat_stream,
-                action_data={"extra_info_block": f'你没有读取到任何说说，{feeds_list[0].get("error")}'}
+                extra_info=f'你没有读取到任何说说，{feeds_list[0].get("error")}'
             )
 
             if success and response:
@@ -351,7 +349,7 @@ class ReadFeedAction(BaseAction):
         # 生成回复
         success, response = await generator_api.generate_reply(
             chat_stream=self.chat_stream,
-            action_data={"extra_info_block": f'你刚刚成功读了以下说说：{feeds_list}，请告知你已经读了说说，生成回复'}
+            extra_info=f'你刚刚成功读了以下说说：{feeds_list}，请告知你已经读了说说，生成回复'
         )
 
         if success and response:
