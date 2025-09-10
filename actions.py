@@ -57,26 +57,26 @@ class SendFeedAction(BaseAction):
         user_id = await person_api.get_person_value(person_id, "user_id")
         if not user_id or user_id == "unknown":
             logger.error(f"未找到用户 {user_name} 的user_id")
-            success, reply_set, prompt_ = await generator_api.generate_reply(
+            success, response = await generator_api.generate_reply(
                 chat_stream=self.chat_stream,
                 action_data={
                     "extra_info_block": f'你不认识{user_name}，请用符合你人格特点的方式拒绝请求'}
             )
 
-            if success and reply_set:
-                for (reply_type, reply_content) in reply_set:
+            if success and response:
+                for (reply_type, reply_content) in response.reply_set:
                     await self.send_text(reply_content)
                     await asyncio.sleep(1 + random.uniform(0, 1))
             return False, "未找到用户的user_id"
         if not self.check_permission(user_id):  # 若权限不足
             logger.info(f"{user_id}无{self.action_name}权限")
-            success, reply_set, prompt_ = await generator_api.generate_reply(
+            success, response, = await generator_api.generate_reply(
                 chat_stream=self.chat_stream,
                 action_data={"extra_info_block": f'{user_name}无权命令你发送说说，请用符合你人格特点的方式拒绝请求'}
             )
 
-            if success and reply_set:
-                for (reply_type, reply_content) in reply_set:
+            if success and response:
+                for (reply_type, reply_content) in response.reply_set:
                     await self.send_text(reply_content)
                     await asyncio.sleep(1 + random.uniform(0, 1))
             return False, ""
@@ -161,13 +161,13 @@ class SendFeedAction(BaseAction):
         logger.info(f"成功发送说说: {story}")
         await self.send_text('我发了一条说说啦~')
         # 生成回复
-        success, reply_set, prompt_ = await generator_api.generate_reply(
+        success, response = await generator_api.generate_reply(
             chat_stream=self.chat_stream,
             action_data={"extra_info_block": f'你刚刚发了一条说说，内容为{story}'}
         )
 
-        if success and reply_set:
-            for (reply_type, reply_content) in reply_set:
+        if success and response:
+            for (reply_type, reply_content) in response.reply_set:
                 await self.send_text(reply_content)
                 await asyncio.sleep(1 + random.uniform(0, 1))
 
@@ -220,25 +220,25 @@ class ReadFeedAction(BaseAction):
         user_id = await person_api.get_person_value(person_id, "user_id")
         if not user_id or user_id == "unknown":
             logger.error(f"未找到用户 {user_name} 的user_id")
-            success, reply_set, prompt_ = await generator_api.generate_reply(
+            success, response = await generator_api.generate_reply(
                 chat_stream=self.chat_stream,
                 action_data={
                     "extra_info_block": f'你不认识{user_name}，请用符合你人格特点的方式拒绝请求'}
             )
 
-            if success and reply_set:
-                for (reply_type, reply_content) in reply_set:
+            if success and response:
+                for (reply_type, reply_content) in response.reply_set:
                     await self.send_text(reply_content)
                     await asyncio.sleep(1 + random.uniform(0, 1))
             return False, "未找到用户的user_id"
         if not self.check_permission(user_id):  # 若权限不足
             logger.info(f"{user_id}无{self.action_name}权限")
-            success, reply_set, prompt_ = await generator_api.generate_reply(
+            success, response = await generator_api.generate_reply(
                 chat_stream=self.chat_stream,
                 action_data={"extra_info_block": f'{user_name}无权命令你阅读说说，请用符合人格的方式进行拒绝的回复'}
             )
-            if success and reply_set:
-                for (reply_type, reply_content) in reply_set:
+            if success and response:
+                for (reply_type, reply_content) in response.reply_set:
                     await self.send_text(reply_content)
                     await asyncio.sleep(1 + random.uniform(0, 1))
             return False, ""
@@ -280,13 +280,13 @@ class ReadFeedAction(BaseAction):
         bot_expression = config_api.get_global_config("personality.reply_style", "内容积极向上")
         #错误处理，如对方设置了访问权限
         if 'error' in feeds_list[0]:
-            success, reply_set, prompt_ = await generator_api.generate_reply(
+            success, response = await generator_api.generate_reply(
                 chat_stream=self.chat_stream,
                 action_data={"extra_info_block": f'你没有读取到任何说说，{feeds_list[0].get("error")}'}
             )
 
-            if success and reply_set:
-                for (reply_type, reply_content) in reply_set:
+            if success and response:
+                for (reply_type, reply_content) in response.reply_set:
                     await self.send_text(reply_content)
                     await asyncio.sleep(1 + random.uniform(0, 1))
                 return True, 'success'
@@ -349,13 +349,13 @@ class ReadFeedAction(BaseAction):
                 logger.info(f"点赞说说'{content[:10]}..'成功")
 
         # 生成回复
-        success, reply_set, prompt_ = await generator_api.generate_reply(
+        success, response = await generator_api.generate_reply(
             chat_stream=self.chat_stream,
             action_data={"extra_info_block": f'你刚刚成功读了以下说说：{feeds_list}，请告知你已经读了说说，生成回复'}
         )
 
-        if success and reply_set:
-            for (reply_type, reply_content) in reply_set:
+        if success and response:
+            for (reply_type, reply_content) in response.reply_set:
                 await self.send_text(reply_content)
                 await asyncio.sleep(1 + random.uniform(0, 1))
             return True, 'success'

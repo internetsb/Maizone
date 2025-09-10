@@ -187,6 +187,7 @@ class QzoneAPI:
             timeout=60
         )
         if res.status_code == 200:
+            logger.debug(f"上传图片响应: {res.text}")
             return eval(res.text[res.text.find('{'):res.text.rfind('}') + 1])
         else:
             raise Exception("上传图片失败")
@@ -250,6 +251,7 @@ class QzoneAPI:
             }
         )
         if res.status_code == 200:
+            logger.debug(f"发表说说响应: {res.text}")
             return res.json()['tid']
         else:
             raise Exception("发表说说失败: " + res.text)
@@ -344,6 +346,7 @@ class QzoneAPI:
             },
         )
         if res.status_code == 200:
+            logger.debug(f"评论响应: {res.text}")
             return True
         else:
             raise Exception("评论失败: " + res.text)
