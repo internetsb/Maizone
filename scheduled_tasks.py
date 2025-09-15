@@ -148,7 +148,8 @@ class FeedMonitor:
                     list_to_reply = []  # 待回复的评论
                     if comments_list:
                         for comment in comments_list:
-                            if comment['parent_tid'] is None and target_qq != qq_account:  # 只考虑主评论和不是自己的评论
+                            comment_qq = comment.get('target_qq', '')
+                            if comment_qq != qq_account:  # 只考虑不是自己的评论
                                 if comment['comment_tid'] not in processed_comments.get(fid, []): # 只考虑未处理过的评论
                                     list_to_reply.append(comment) # 添加到待回复列表
                                     processed_comments.setdefault(fid, []).append(comment['comment_tid']) # 记录到已处理评论
@@ -157,7 +158,7 @@ class FeedMonitor:
                                         oldest_fid = next(iter(processed_comments))
                                         processed_comments.pop(oldest_fid)
 
-                    if not list_to_reply:
+                    if len(list_to_reply) == 0:
                         continue
                     for comment in list_to_reply:
                         # 逐条回复评论

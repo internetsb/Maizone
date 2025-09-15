@@ -596,7 +596,7 @@ class QzoneAPI:
             raise Exception("访问失败: " + str(res.status_code))
 
         data = res.text
-        logger.debug(f"原始说说数据:{data}")
+        #logger.debug(f"原始说说数据:{data}")
         if data.startswith('_Callback(') and data.endswith(');'):
             # 1. 去掉res首尾的 _Callback( 和 );
             data = data[len('_Callback('):-2]
@@ -604,7 +604,7 @@ class QzoneAPI:
         try:
             # 2. 解析JSON数据
             data = json5.loads(data)['data']['data']
-            logger.debug(f"初解析原始说说数据: {data}")
+            #logger.debug(f"初解析原始说说数据: {data}")
         except Exception as e:
             logger.error(f"解析错误: {e}")
             # 3. 提取说说内容
