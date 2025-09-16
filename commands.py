@@ -2,7 +2,7 @@ from typing import Optional
 from pathlib import Path
 
 from src.plugin_system import BaseCommand
-from src.plugin_system.apis import llm_api, config_api
+from src.plugin_system.apis import llm_api, config_api, database_api
 from src.common.logger import get_logger
 
 from .qzone_api import create_qzone_api
@@ -114,7 +114,7 @@ class SendFeedCommand(BaseCommand):
         logger.info(f"成功生成说说内容：'{story}'")
 
         if image_mode != "only_emoji" and not apikey:
-            logger.error('请填写apikey')
+            logger.warning("未配置apikey，无法生成图片")
             image_mode = "only_emoji"  # 如果没有apikey，则只使用表情包
 
         # 发送说说
