@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Tuple
 
 from src.plugin_system import BaseAction, ActionActivationType
-from src.plugin_system.apis import llm_api, config_api, person_api, generator_api, database_api
+from src.plugin_system.apis import llm_api, config_api, person_api, generator_api
 from src.common.logger import get_logger
 
 from .qzone_api import create_qzone_api
@@ -26,7 +26,7 @@ class SendFeedAction(BaseAction):
     keyword_case_sensitive = False
 
     action_parameters = {
-        "topic": "要发送的说说主题",
+        "topic": "要发送的说说主题或完整内容",
         "user_name": "要求你发说说的好友的qq名称",
     }
     action_require = [
@@ -66,12 +66,10 @@ class SendFeedAction(BaseAction):
                 for (reply_type, reply_content) in response.reply_set:
                     await self.send_text(reply_content)
                     await asyncio.sleep(1 + random.uniform(0, 1))
-            await database_api.store_action_info(
-                chat_stream=self.chat_stream,
+            await self.store_action_info(
                 action_build_into_prompt=True,
                 action_prompt_display="拒绝执行发送说说动作：无法获取未知用户QQ",
                 action_done=False,
-                action_name="send_feed",
             )
             return False, "未找到用户的user_id"
 
@@ -85,12 +83,10 @@ class SendFeedAction(BaseAction):
                 for (reply_type, reply_content) in response.reply_set:
                     await self.send_text(reply_content)
                     await asyncio.sleep(1 + random.uniform(0, 1))
-            await database_api.store_action_info(
-                chat_stream=self.chat_stream,
+            await self.store_action_info(
                 action_build_into_prompt=True,
                 action_prompt_display="拒绝执行发送说说动作：用户权限不足",
                 action_done=False,
-                action_name="send_feed",
             )
             return False, ""
         else:
@@ -125,12 +121,10 @@ class SendFeedAction(BaseAction):
             await renew_cookies(host, port, napcat_token)
         except Exception as e:
             logger.error(f"更新cookies失败: {str(e)}")
-            await database_api.store_action_info(
-                chat_stream=self.chat_stream,
+            await self.store_action_info(
                 action_build_into_prompt=True,
                 action_prompt_display="执行发送说说动作失败：登陆失败，cookies出错",
                 action_done=False,
-                action_name="send_feed",
             )
             return False, "更新cookies失败"
         # 创建qzone_api实例
@@ -172,13 +166,10 @@ class SendFeedAction(BaseAction):
         if not success:
             return False, "发送说说失败"
         logger.info(f"成功发送说说: {story}")
-        await database_api.store_action_info(
-            chat_stream=self.chat_stream,
+        await self.store_action_info(
             action_build_into_prompt=True,
-            action_prompt_display="执行了发送说说动作",
-            action_data={"topic": topic, "content": story},
+            action_prompt_display=f"执行了发送说说动作，你刚刚发了一条说说，内容为{story}",
             action_done=True,
-            action_name="send_feed",
         )
         # 生成回复
         success, response = await generator_api.generate_reply(
@@ -248,12 +239,10 @@ class ReadFeedAction(BaseAction):
                 for (reply_type, reply_content) in response.reply_set:
                     await self.send_text(reply_content)
                     await asyncio.sleep(1 + random.uniform(0, 1))
-            await database_api.store_action_info(
-                chat_stream=self.chat_stream,
+            await self.store_action_info(
                 action_build_into_prompt=True,
                 action_prompt_display="拒绝执行阅读说说动作：无法获取未知用户QQ",
                 action_done=False,
-                action_name="read_feed",
             )
             return False, "未找到用户的user_id"
         if not self.check_permission(user_id):  # 若权限不足
@@ -266,12 +255,10 @@ class ReadFeedAction(BaseAction):
                 for (reply_type, reply_content) in response.reply_set:
                     await self.send_text(reply_content)
                     await asyncio.sleep(1 + random.uniform(0, 1))
-            await database_api.store_action_info(
-                chat_stream=self.chat_stream,
+            await self.store_action_info(
                 action_build_into_prompt=True,
                 action_prompt_display="拒绝执行阅读说说动作：用户权限不足",
                 action_done=False,
-                action_name="read_feed",
             )
             return False, ""
         else:
@@ -288,12 +275,10 @@ class ReadFeedAction(BaseAction):
             await renew_cookies(host, port, napcat_token)
         except Exception as e:
             logger.error(f"更新cookies失败: {str(e)}")
-            await database_api.store_action_info(
-                chat_stream=self.chat_stream,
+            await self.store_action_info(
                 action_build_into_prompt=True,
                 action_prompt_display="执行阅读说说动作失败：登录失败，cookies出错",
                 action_done=False,
-                action_name="read_feed",
             )
             return False, "更新cookies失败"
         #根据昵称获取qq号
@@ -301,6 +286,7 @@ class ReadFeedAction(BaseAction):
         logger.info(f'获取到person_id={person_id}')
         target_qq = await person_api.get_person_value(person_id, "user_id")
         logger.info(f'获取到user_id={target_qq}')
+        impression = await person_api.get_person_value(person_id, "memory_points", ["无"])
         #获取指定好友最近的说说
         num = self.get_config("read.read_number", 5)
         like_possibility = self.get_config("read.like_possibility", 1.0)
@@ -319,12 +305,10 @@ class ReadFeedAction(BaseAction):
         bot_expression = config_api.get_global_config("personality.reply_style", "内容积极向上")
         #错误处理，如对方设置了访问权限
         if 'error' in feeds_list[0]:
-            await database_api.store_action_info(
-                chat_stream=self.chat_stream,
+            await self.store_action_info(
                 action_build_into_prompt=True,
                 action_prompt_display=f"执行阅读说说动作失败：未能读取到说说，错误原因：{feeds_list[0].get('error')}",
                 action_done=False,
-                action_name="read_feed",
             )
             success, response = await generator_api.generate_reply(
                 chat_stream=self.chat_stream,
@@ -352,13 +336,15 @@ class ReadFeedAction(BaseAction):
                     prompt = f"""
                     你是'{bot_personality}'，你正在浏览你好友'{target_name}'的QQ空间，
                     你看到了你的好友'{target_name}'qq空间上内容是'{content}'的说说，你想要发表你的一条评论，
+                    你对'{target_name}'的印象是'{impression}'，若与你的印象点相关，可以适当评论相关内容，无关则忽略此印象，
                     {bot_expression}，回复的平淡一些，简短一些，说中文，
                     不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。只输出回复内容
                     """
                 else:
                     prompt = f"""
                     你是'{bot_personality}'，你正在浏览你好友'{target_name}'的QQ空间，
-                    你看到了你的好友'{target_name}'在qq空间上转发了一条内容为'{rt_con}'的说说，你的好友的评论为'{content}'
+                    你看到了你的好友'{target_name}'在qq空间上转发了一条内容为'{rt_con}'的说说，你的好友的评论为'{content}'，
+                    你对'{target_name}'的印象是'{impression}'，若与你的印象点相关，可以适当评论相关内容，无关则忽略此印象，
                     你想要发表你的一条评论，{bot_expression}，回复的平淡一些，简短一些，说中文，
                     不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。只输出回复内容
                     """
@@ -392,25 +378,10 @@ class ReadFeedAction(BaseAction):
                     logger.error(f"点赞说说'{content}'失败")
                     return False, "点赞说说失败"
                 logger.info(f"点赞说说'{content[:10]}..'成功")
-        await database_api.store_action_info(
-            chat_stream=self.chat_stream,
+        await self.store_action_info(
             action_build_into_prompt=True,
-            action_prompt_display="执行阅读说说动作完成",
-            action_data={"target_qq": target_qq, "feeds": feeds_list},
+            action_prompt_display=f"执行阅读说说动作完成，你刚刚成功读了以下说说：{feeds_list}，请告知你已经读了说说，生成回复",
             action_done=True,
-            action_name="read_feed",
         )
-        # 生成回复
-        success, response = await generator_api.generate_reply(
-            chat_stream=self.chat_stream,
-            extra_info=f'你刚刚成功读了以下说说：{feeds_list}，请告知你已经读了说说，生成回复'
-        )
-
-        if success and response:
-            for (reply_type, reply_content) in response.reply_set:
-                await self.send_text(reply_content)
-                await asyncio.sleep(1 + random.uniform(0, 1))
-            return True, 'success'
-
-        return False, '生成回复失败'
+        return True, 'success'
 

@@ -24,7 +24,7 @@ def generate_gtk(skey: str) -> str:
     return str(hash_val & 2147483647)
 
 def get_picbo_and_richval(upload_result):
-    """从上传结果中提取图片的picbo和richval值"""
+    """从上传结果中提取图片的picbo和richval值用于发表图片说说"""
     json_data = upload_result
     if 'ret' not in json_data:
         raise Exception("获取图片picbo和richval失败")
@@ -95,7 +95,7 @@ class QzoneAPI:
             cookies: dict = None,
             timeout: int = 10
     ) -> httpx.Response:
-        """发送httpx异步请求，返回response"""
+        """发送带cookies的httpx异步请求，返回response"""
         if cookies is None:
             cookies = self.cookies
 
@@ -355,7 +355,7 @@ class QzoneAPI:
     async def reply(self, fid: str, target_qq: str, target_nickname: str, content: str, comment_tid: str) -> bool:
         """
         回复指定评论。
-
+        TODO 采用子评论回复的方法不可用，暂时通过在评论内容中@目标昵称来实现。
         Args:
             fid (str): 说说的动态ID。
             target_qq (str): 目标QQ号。
@@ -374,7 +374,7 @@ class QzoneAPI:
                 "topicId": f"{uin}_{fid}__1",  # 使用标准评论格式，而不是针对特定评论
                 "uin": uin,
                 "hostUin": uin,
-                "content": f"回复@{target_nickname}：{content}",  # 内容中明确标示回复对象
+                "content": f"回复@ {target_nickname} ：{content}",  # 内容中明确标示回复对象
                 "format": "fs",
                 "plat": "qzone",
                 "source": "ic",
@@ -405,20 +405,20 @@ class QzoneAPI:
 
     async def get_list(self, target_qq: str, num: int) -> list[dict[str, Any]]:
         """
-        解析json获取指定QQ号的好友说说列表。
+        获取指定QQ号的好友说说列表，返回未读说说列表。
 
         Args:
             target_qq (str): 目标QQ号。
             num (int): 要获取的说说数量。
 
         Returns:
-            list[dict[str, Any]]: 包含说说信息的字典列表，每条字典包含说说的ID（tid）、发布时间（created_time）、内容（content）、图片（images）、视频（videos）及转发内容（rt_con）。
+            list[dict[str, Any]]: 包含说说信息的字典列表，每条字典包含说说的ID（tid）、发布时间（created_time）、内容（content）、图片描述（images）、视频url（videos）及转发内容（rt_con）。
             若发生错误，则返回包含错误信息的字典列表。如['error': '错误信息']。
         Raises:
             Exception: 如果请求失败或响应状态码不是200，将抛出异常。
             Exception: 如果解析JSON数据失败，将返回包含错误信息的字典列表。
         """
-        logger.info(f'target_qq: {target_qq}')
+        logger.info(f'即将获取 {target_qq} 的说说列表...')
         res = await self.do(
             method="GET",
             url=self.LIST_URL,
@@ -502,7 +502,7 @@ class QzoneAPI:
                                 image_manager = get_image_manager()
                                 image_description = await image_manager.get_image_description(image_base64)
                                 images.append(image_description)
-                    # 读取视频临时手段(解读封面)
+                    # TODO 读取视频临时手段(解读封面，把视频作图片处理)
                     if 'video' in msg:
                         for video in msg['video']:
                             video_image_url = video.get('url1') or video.get('pic_url')
@@ -550,13 +550,13 @@ class QzoneAPI:
 
     async def monitor_get_list(self, num: int) -> list[dict[str, Any]]:
         """
-        解析html获取自己的好友说说列表。
+        获取自己的好友说说列表，返回已读与未读的说说列表。
 
         Args:
             num (int): 要获取的说说数量。
 
         Returns:
-            list[dict[str, Any]]: 包含说说信息的字典列表，每条字典包含目标QQ号（target_qq）、说说ID(tid)、内容(content)、图片(images)、视频(videos)、转发内容(rt_con)及评论内容(comments)。
+            list[dict[str, Any]]: 包含说说信息的字典列表，每条字典包含目标QQ号（target_qq）、说说ID(tid)、内容(content)、图片描述(images)、视频url(videos)、转发内容(rt_con)及评论内容(comments)。
 
         Raises:
             Exception: 如果请求失败或响应状态码不是200，将抛出异常。
@@ -614,11 +614,13 @@ class QzoneAPI:
             for feed in data:
                 if not feed:  # 跳过None值
                     continue
-                # 过滤广告类内容
+                # 过滤广告类内容（appid=311）
                 appid = str(feed.get('appid', ''))
                 if appid != '311':
                     continue
                 target_qq = feed.get('uin', '')
+                if target_qq == str(self.uin):
+                    num_self += 1 # 统计自己的说说数量
                 tid = feed.get('key', '')
                 if not target_qq or not tid:
                     logger.error(f"无效的说说数据: target_qq={target_qq}, tid={tid}")
@@ -631,26 +633,7 @@ class QzoneAPI:
                     continue
 
                 soup = bs4.BeautifulSoup(html_content, 'html.parser')
-                is_read = False
-                # 根据点赞状态判断是否已读
-                like_btn = soup.find('a', class_='qz_like_btn_v3')
-                if like_btn:
-                    data_islike = like_btn.get('data-islike')
-                else:
-                    like_btn = soup.find('a', attrs={'data-islike': True})
-                    if like_btn:
-                        data_islike = like_btn.get('data-islike')
-                    else:
-                        data_islike = None
-                        logger.error("未找到包含data-islike属性的元素")
-                if data_islike == '1':
-                    is_read = True
 
-                # 只处理未读说说和自己的说说
-                if is_read and target_qq != str(self.uin):
-                    continue
-                if target_qq == str(self.uin):
-                    num_self += 1
                 # 提取文字内容
                 text_div = soup.find('div', class_='f-info')
                 text = text_div.get_text(strip=True) if text_div else ""
@@ -672,7 +655,7 @@ class QzoneAPI:
                         src = img.get('src')
                         if src and not src.startswith('http://qzonestyle.gtimg.cn'):  # 过滤表情图标
                             image_urls.append(src)
-                # 临时视频处理办法（视频缩略图）
+                # TODO 临时视频处理办法（视频缩略图）
                 img_tag = soup.select_one('div.video-img img')
                 if img_tag and 'src' in img_tag.attrs:
                     image_urls.append(img_tag['src'])
@@ -688,7 +671,7 @@ class QzoneAPI:
                         images.append(description)
                     except Exception as e:
                         logger.info(f'图片识别失败: {url} - {str(e)}')
-                # 获取视频
+                # 获取视频url
                 videos = []
                 video_div = soup.select_one('div.img-box.f-video-wrap.play')
                 if video_div and 'url3' in video_div.attrs:
@@ -749,11 +732,11 @@ class QzoneAPI:
 
     async def get_send_history(self, num:int) -> str:
         """
-        获取指定QQ号的说说发送历史。
-
+        构建说说发送历史prompt。
+        Args:
+            num (int): 要获取的说说数量。
         Returns:
-            str: 最近发过的说说内容，格式化为字符串。
-
+            str: 最近发过的说说内容。
         Raises:
             Exception: 如果请求失败或响应状态码不是200，将抛出异常。
         """

@@ -3,20 +3,49 @@ import time
 import random
 import datetime
 import traceback
-from typing import List, Dict
-from pathlib import Path
 import os
 import json
+from typing import List, Dict
+from pathlib import Path
 
 from src.common.logger import get_logger
-from src.plugin_system.apis import llm_api, config_api
+from src.plugin_system.apis import llm_api, config_api, person_api
 
 from .qzone_api import create_qzone_api
 from .cookie_manager import renew_cookies
 from .utils import monitor_read_feed, reply_feed, comment_feed, like_feed, send_feed
 
 logger = get_logger("Maizone.定时任务")
+
+
 # ===== 定时任务功能 =====
+def _save_processed_list(processed_list: Dict[str, List[str]]):
+    """保存已处理说说及评论字典到文件"""
+    try:
+        file_path = str(Path(__file__).parent.resolve() / "processed_list.json")
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(processed_list, f, ensure_ascii=False, indent=2)
+            logger.debug("已保存已处理说说列表")
+    except Exception as e:
+        logger.error(f"保存已处理评论失败: {str(e)}")
+
+
+def _load_processed_list() -> Dict[str, List[str]]:
+    """从文件加载已处理说说及评论字典"""
+    file_path = str(Path(__file__).parent.resolve() / "processed_list.json")
+
+    if os.path.exists(file_path):
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                logger.debug("正在加载已处理说说列表")
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"加载已处理评论失败: {str(e)}")
+            return {}
+    logger.warning("未找到已处理评论列表，将创建新列表")
+    return {}
+
+
 class FeedMonitor:
     """定时监控好友说说的类"""
 
@@ -47,54 +76,33 @@ class FeedMonitor:
                 pass
         logger.info("说说监控任务已停止")
 
-    def _load_processed_comments(self) -> Dict[str, List[str]]:
-        """从文件加载已处理评论"""
-        file_path = str(Path(__file__).parent.resolve() / "processed_comments.json")
-
-        if os.path.exists(file_path):
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except Exception as e:
-                logger.error(f"加载已处理评论失败: {str(e)}")
-
-        return {}
-
-    def _save_processed_comments(self, processed_comments: Dict[str, List[str]]):
-        """保存已处理评论到文件"""
-        try:
-            file_path = str(Path(__file__).parent.resolve() / "processed_comments.json")
-            with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(processed_comments, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            logger.error(f"保存已处理评论失败: {str(e)}")
-
     async def _monitor_loop(self):
         """监控循环"""
         # 获取配置
         interval = self.plugin.get_config("monitor.interval_minutes", 5)
         read_num = self.plugin.get_config("monitor.read_num", 3)
         # 记录已处理评论，说说id映射已处理评论列表
-        processed_comments = self._load_processed_comments()
+        processed_list = _load_processed_list()
         while self.is_running:
             try:
                 # 等待指定时间
                 await asyncio.sleep(interval * 60)
                 # 执行监控任务
-                await self.check_feeds(read_num, processed_comments)
+                await self.check_feeds(read_num, processed_list)
                 # 保存已处理评论到文件
-                self._save_processed_comments(processed_comments)
+                _save_processed_list(processed_list)
             except asyncio.CancelledError:
-                self._save_processed_comments(processed_comments)
+                _save_processed_list(processed_list)
                 break
             except Exception as e:
                 logger.error(f"监控任务出错: {str(e)}")
+                _save_processed_list(processed_list)
                 traceback.print_exc()
                 # 出错后等待一段时间再重试
                 await asyncio.sleep(300)
 
     async def check_feeds(self, read_num: int, processed_comments: Dict[str, List[str]]):
-        """检查好友说说"""
+        """检查空间说说并回复未读说说和评论"""
 
         qq_account = config_api.get_global_config("bot.qq_account", "")
         port = self.plugin.get_config("plugin.http_port", "9999")
@@ -103,7 +111,7 @@ class FeedMonitor:
         show_prompt = self.plugin.get_config("models.show_prompt", False)
         #模型配置
         models = llm_api.get_available_models()
-        text_model = self.plugin.get_config("models.text_model", "replyer_1")
+        text_model = self.plugin.get_config("models.text_model", "replyer")
         model_config = models[text_model]
         if not model_config:
             return False, "未配置LLM模型"
@@ -139,7 +147,7 @@ class FeedMonitor:
                 target_qq = feed["target_qq"]
                 rt_con = feed.get("rt_con", "")
                 comments_list = feed["comments"]
-                # 检查自己的说说评论并回复
+                # 回复自己的说说评论
                 if target_qq == qq_account:
                     enable_auto_reply = self.plugin.get_config("monitor.enable_auto_reply", False)
                     if not enable_auto_reply:
@@ -150,10 +158,10 @@ class FeedMonitor:
                         for comment in comments_list:
                             comment_qq = comment.get('qq_account', '')
                             if int(comment_qq) != int(qq_account):  # 只考虑不是自己的评论
-                                if comment['comment_tid'] not in processed_comments.get(fid, []): # 只考虑未处理过的评论
-                                    list_to_reply.append(comment) # 添加到待回复列表
-                                    processed_comments.setdefault(fid, []).append(comment['comment_tid']) # 记录到已处理评论
-                                    if len(processed_comments) > read_num:
+                                if comment['comment_tid'] not in processed_comments.get(fid, []):  # 只考虑未处理过的评论
+                                    list_to_reply.append(comment)  # 添加到待回复列表
+                                    processed_comments.setdefault(fid, []).append(comment['comment_tid'])  # 记录到已处理评论
+                                    while len(processed_comments) > read_num * 3:
                                         # 为防止字典无限增长，限制字典大小
                                         oldest_fid = next(iter(processed_comments))
                                         processed_comments.pop(oldest_fid)
@@ -162,9 +170,13 @@ class FeedMonitor:
                         continue
                     for comment in list_to_reply:
                         # 逐条回复评论
+                        user_id = comment['qq_account']
+                        person_id = person_api.get_person_id("qq", user_id)
+                        impression = await person_api.get_person_value(person_id, "memory_points", ["无"])
                         prompt = f"""
                         你是'{bot_personality}'，你的好友'{comment['nickname']}'评论了你QQ空间上的一条内容为“{content}”说说，
-                        你的好友对该说说的评论为:“{comment["content"]}”，你想要对此评论进行回复
+                        你的好友对该说说的评论为:“{comment["content"]}”，你想要对此评论进行回复，
+                        你对该好友的印象是:{impression}，若与你的印象点相关，可以适当回复相关内容，无关则忽略此印象，
                         {bot_expression}，回复的平淡一些，简短一些，说中文，
                         不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。只输出回复内容
                         """
@@ -192,20 +204,27 @@ class FeedMonitor:
                             logger.error(f"回复评论{comment['content']}失败")
                             return False, "回复评论失败"
                         logger.info(f"发送回复'{reply}'成功")
-                        await asyncio.sleep(10 + random.random() * 10)
+                        await asyncio.sleep(5 + random.random() * 5)
                     continue
                 # 评论他人说说
+                if fid in processed_comments:
+                    # 该说说已处理过，跳过
+                    continue
+                person_id = person_api.get_person_id("qq", target_qq)
+                impression = await person_api.get_person_value(person_id, "memory_points", ["无"])
                 if not rt_con:
                     prompt = f"""
                     你是'{bot_personality}'，你正在浏览你好友'{target_qq}'的QQ空间，
                     你看到了你的好友'{target_qq}'qq空间上内容是'{content}'的说说，你想要发表你的一条评论，
+                    你对该好友的印象是:{impression}，若与你的印象点相关，可以适当回复相关内容，无关则忽略此印象，
                     {bot_expression}，回复的平淡一些，简短一些，说中文，
                     不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。只输出回复内容
                     """
                 else:
                     prompt = f"""
                     你是'{bot_personality}'，你正在浏览你好友'{target_qq}'的QQ空间，
-                    你看到了你的好友'{target_qq}'在qq空间上转发了一条内容为'{rt_con}'的说说，你的好友的评论为'{content}'
+                    你看到了你的好友'{target_qq}'在qq空间上转发了一条内容为'{rt_con}'的说说，你的好友的评论为'{content}'，
+                    你对该好友的印象是:{impression}，若与你的印象点相关，可以适当回复相关内容，无关则忽略此印象，
                     你想要发表你的一条评论，{bot_expression}，回复的平淡一些，简短一些，说中文，
                     不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。只输出回复内容
                     """
@@ -238,6 +257,12 @@ class FeedMonitor:
                     logger.error(f"点赞说说{content}失败")
                     return False, "点赞说说失败"
                 logger.info(f'点赞说说{content[:10]}..成功')
+                # 记录该说说已处理
+                processed_comments[fid] = []
+                while len(processed_comments) > read_num * 3:
+                    # 为防止字典无限增长，限制字典大小
+                    oldest_fid = next(iter(processed_comments))
+                    processed_comments.pop(oldest_fid)
                 return True, 'success'
         except Exception as e:
             logger.error(f"点赞评论失败: {str(e)}")
@@ -252,6 +277,7 @@ class ScheduleSender:
         self.is_running = False
         self.task = None
         self.last_send_time = 0
+        self.fluctuate_table = []  # 记录波动后的发送时间表
 
     async def start(self):
         """启动定时发送任务"""
@@ -274,21 +300,62 @@ class ScheduleSender:
                 pass
         logger.info("定时发送说说任务已停止")
 
+    def _generate_fluctuate_table(self):
+        """生成随机波动时间表"""
+        schedule_times = self.plugin.get_config("schedule.schedule_times", ["08:00", "20:00"])
+        fluctuate_minutes = self.plugin.get_config("schedule.fluctuation_minutes", 0)
+
+        # 清空当前波动表
+        self.fluctuate_table = []
+
+        # 如果波动分钟数为0，直接使用计划时间
+        if fluctuate_minutes == 0:
+            self.fluctuate_table = schedule_times.copy()
+            self.fluctuate_table.sort()
+            logger.info(f"无波动，使用计划时间: {self.fluctuate_table}")
+            return
+
+        # 为每个计划时间生成一个随机波动时间
+        for base_time in schedule_times:
+            # 解析基础时间
+            base_hour, base_minute = map(int, base_time.split(":"))
+            base_total_minutes = base_hour * 60 + base_minute
+            # 生成随机偏移量
+            offset = random.randint(-fluctuate_minutes, fluctuate_minutes)
+            # 处理溢出
+            total_minutes = base_total_minutes + offset
+            if total_minutes < 0:
+                total_minutes += 24 * 60
+            elif total_minutes >= 24 * 60:
+                total_minutes -= 24 * 60
+            # 转换回时间格式
+            h = total_minutes // 60
+            m = total_minutes % 60
+            fluctuate_time = f"{h:02d}:{m:02d}"
+            # 添加到波动表
+            if fluctuate_time not in self.fluctuate_table:
+                self.fluctuate_table.append(fluctuate_time)
+
+        # 按时间排序波动表
+        self.fluctuate_table.sort()
+        logger.info(f"波动后的发送时间表: {self.fluctuate_table}")
+
     async def _schedule_loop(self):
         """定时发送循环"""
         while self.is_running:
+            if not self.fluctuate_table:
+                self._generate_fluctuate_table()
             try:
-                # 获取配置
-                schedule_times = self.plugin.get_config("schedule.schedule_times", ["08:00", "20:00"])
+                # 获取当前时间
                 current_time = datetime.datetime.now().strftime("%H:%M")
-
                 # 检查是否到达发送时间
-                if current_time in schedule_times:
+                if current_time in self.fluctuate_table:
                     # 避免同一分钟内重复发送
                     if time.time() - self.last_send_time > 60:
-                        logger.info("定时任务：正在发送说说")
+                        logger.info("正在发送定时说说...")
                         self.last_send_time = time.time()
                         await self.send_scheduled_feed()
+                        self.fluctuate_table.remove(current_time)
 
                 # 每分钟检查一次
                 await asyncio.sleep(60)

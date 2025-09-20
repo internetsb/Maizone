@@ -3,6 +3,8 @@ import random
 import datetime
 import traceback
 import base64
+import json
+from typing import List, Dict
 from pathlib import Path
 
 import httpx
@@ -12,13 +14,14 @@ from src.common.logger import get_logger
 from src.plugin_system.apis import llm_api, config_api, emoji_api
 from src.plugin_system.core import component_registry
 
-logger = get_logger('Maizone.硅基生图')
+logger = get_logger('Maizone.组件')
 
 plugin_config = component_registry.get_plugin_config('MaizonePlugin')
 models = llm_api.get_available_models()
 prompt_model = config_api.get_plugin_config(plugin_config, "models.text_model", "replyer")  # 获取模型配置
 model_config = models[prompt_model]
 personality = config_api.get_global_config("personality.personality", "一只猫娘") # 人格
+
 async def generate_image_by_sf(api_key: str, story: str, image_dir: str, batch_size: int = 1) -> bool:
     """
     用siliconflow API生成说说配图保存至对应路径
@@ -115,7 +118,7 @@ async def generate_image_by_sf(api_key: str, story: str, image_dir: str, batch_s
 async def send_feed(message: str, image_directory: str, enable_image: bool, image_mode: str,
                     ai_probability: float, image_number: int, apikey: str) -> bool:
     """
-    发送说说及图片。
+    发送说说及图片目录下的所有未处理图片。
 
     Args:
         message (str): 要发送的说说内容。
@@ -154,7 +157,6 @@ async def send_feed(message: str, image_directory: str, enable_image: bool, imag
     image_number = max(1, min(4, image_number))  # 限制在1-4之间
 
     # 决定图片来源
-    use_ai = False
     if image_mode == "only_ai":
         use_ai = True
     elif image_mode == "only_emoji":

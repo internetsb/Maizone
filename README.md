@@ -6,7 +6,7 @@
 <u>制作者水平稀烂，任何疑问或bug或建议请联系qq：1523640161</u>
 
 ## 概述
-Maizone（麦麦空间）插件v2.1.6，让你的麦麦发说说，读QQ空间，点赞评论！
+Maizone（麦麦空间）插件v2.2.0，让你的麦麦发说说，读QQ空间，点赞评论！
 
 ## 功能
 - **发说说**: 当用户说"说说"、"qq空间"、"动态"时麦麦会决定是否发说说和说说的主题
@@ -81,9 +81,31 @@ Maizone（麦麦空间）插件v2.1.6，让你的麦麦发说说，读QQ空间�
 
 **定时发说说**：在config.toml中schedule开启，麦麦会定时发送说说
 
+## 常见问题
+
+- **Q：我发了一条说说，但bot没有回复**
+
+  **A：bot无法阅读相册上传、小程序分享、过早的说说，且某些说说（比如新加的好友）需要多次才能读到**
+
+- **Q：No module named 'plugins.Maizone-2'**
+
+  **A：'.'导致被错误地识别为了包，请重命名文件夹为Maizone**
+
+- **Q：所有功能都失败**
+
+  **A：请检查MaiBot/config/bot_config.toml中qq_account是否填写正确**
+
+- **Q：No module named 'bs4'**
+
+  **A：安装依赖失败，请确保在MaiBot运行的环境下，按照安装麦麦时的方法，选择恰当的给出的方式安装依赖**
+
+- **其余问题请联系作者修复或解决，QQ号没写错**
+
 ## 鸣谢
 
-部分代码来自仓库：https://github.com/gfhdhytghd/qzone-toolkit
+[MaiBot](https://github.com/MaiM-with-u/MaiBot)
+
+部分代码来自仓库：[qzone-toolkit](https://github.com/gfhdhytghd/qzone-toolkit)
 
 感谢[xc94188](https://github.com/xc94188)、[myxxr](https://github.com/myxxr)、[UnCLAS-Prommer](https://github.com/UnCLAS-Prommer)提供的功能改进
 
