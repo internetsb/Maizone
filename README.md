@@ -58,10 +58,6 @@ Maizone（麦麦空间）插件v2.2.0，让你的麦麦发说说，读QQ空间�
 >
 > Docker用户可将Napcat的HTTP Server的Host栏改为core（或0.0.0.0[不推荐]），插件的config.toml中的http_host栏改为napcat。经测试亦可正常使用
 
-**备用方案操作步骤：若连接Napcat失败，请用浏览器登录QQ空间并挂在后台**
-
-插件*内置了两个方法用于自动获取cookie，如果还是不行但还是想用的话自己定时爬出cookie把目录自带的json填上吧（*
-
 ### 修改配置文件
 请设置：
 1. 是否启用插件及各种功能
