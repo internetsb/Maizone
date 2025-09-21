@@ -369,7 +369,7 @@ class ScheduleSender:
         """发送定时说说"""
         # 模型配置
         models = llm_api.get_available_models()
-        text_model = self.plugin.get_config("models.text_model", "replyer_1")
+        text_model = self.plugin.get_config("models.text_model", "replyer")
         model_config = models[text_model]
         if not model_config:
             logger.error("未配置LLM模型")
@@ -404,20 +404,22 @@ class ScheduleSender:
         qzone = create_qzone_api()
         # 生成说说内容
         if random_topic:
-            prompt = f"""
-            你是'{bot_personality}'，你想写一条说说发表在qq空间上，主题不限
-            {bot_expression}
-            不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，可以适当使用颜文字，
-            只输出一条说说正文的内容，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )
-            """
+            prompt_pre = self.plugin.get_config("send.prompt", "")
+            data = {
+                "bot_personality": bot_personality,
+                "bot_expression": bot_expression,
+                "topic": "随机"
+            }
+            prompt = prompt_pre.format(**data)
         else:
             fixed_topic = random.choice(fixed_topics)
-            prompt = f"""
-            你是'{bot_personality}'，你想写一条主题是'{fixed_topic}'的说说发表在qq空间上，
-            {bot_expression}
-            不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，可以适当使用颜文字，
-            只输出一条说说正文的内容，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )
-            """
+            prompt_pre = self.plugin.get_config("send.prompt", "")
+            data = {
+                "bot_personality": bot_personality,
+                "bot_expression": bot_expression,
+                "topic": fixed_topic
+            }
+            prompt = prompt_pre.format(**data)
 
         prompt += "\n以下是你最近发过的说说，写新说说时注意不要在相隔不长的时间发送相似内容的说说\n"
         prompt += await qzone.get_send_history(history_number)

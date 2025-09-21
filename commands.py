@@ -76,21 +76,21 @@ class SendFeedCommand(BaseCommand):
             logger.error(f"更新cookies失败: {str(e)}")
             return False, "更新cookies失败", True
         qzone = create_qzone_api()
-
+        prompt_pre = self.get_config("send.prompt", "")
         if topic:
-            prompt = f"""
-            你是'{bot_personality}'，你想写一条主题是'{topic}'的说说发表在qq空间上，
-            {bot_expression}
-            不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，可以适当使用颜文字，
-            只输出一条说说正文的内容，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )
-            """
+            data = {
+                "bot_personality": bot_personality,
+                "topic": topic,
+                "bot_expression": bot_expression
+            }
+            prompt = prompt_pre.format(**data)
         else:
-            prompt = f"""
-            你是'{bot_personality}'，你想写一条说说发表在qq空间上，主题不限
-            {bot_expression}
-            不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，可以适当使用颜文字，
-            只输出一条说说正文的内容，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )
-            """
+            data = {
+                "bot_personality": bot_personality,
+                "bot_expression": bot_expression,
+                "topic": "随机"
+            }
+            prompt = prompt_pre.format(**data)
 
         prompt += "\n以下是你以前发过的说说，写新说说时注意不要在相隔不长的时间发送相同主题的说说]\n"
         prompt += await qzone.get_send_history(history_number)

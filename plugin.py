@@ -14,7 +14,7 @@ class MaizonePlugin(BasePlugin):
     """Maizone插件 - 让麦麦发QQ空间"""
     plugin_name = "MaizonePlugin"
     plugin_description = "让麦麦实现QQ空间点赞、评论、发说说"
-    plugin_version = "2.2.0"
+    plugin_version = "2.3.0"
     plugin_author = "internetsb"
     enable_plugin = True
     config_file_name = "config.toml"
@@ -52,7 +52,11 @@ class MaizonePlugin(BasePlugin):
                                       description="图片使用方式: only_ai(仅AI生成)/only_emoji(仅表情包)/random(随机混合)"),
             "ai_probability": ConfigField(type=float, default=0.5, description="random模式下使用AI图片的概率(0-1)"),
             "image_number": ConfigField(type=int, default=1, description="使用的图片数量(范围1至4)"),
-            "history_number": ConfigField(type=int, default=5, description="生成说说时参考的历史说说数量，越多越能避免重复内容"),
+            "history_number": ConfigField(type=int, default=5,
+                                          description="生成说说时参考的历史说说数量，越多越能避免重复内容"),
+            "prompt": ConfigField(type=str,
+                                  default="你是'{bot_personality}'，你想写一条主题是'{topic}'的说说发表在qq空间上，{bot_expression}不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，可以适当使用颜文字，只输出一条说说正文的内容，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )",
+                                  description="生成说说的提示词，占位符包括{bot_personality}（人格），{topic}（说说主题），{bot_expression}（表达方式）"),
         },
         "read": {
             "permission": ConfigField(type=list, default=['114514', '1919810', ],
@@ -75,9 +79,21 @@ class MaizonePlugin(BasePlugin):
             "enable_schedule": ConfigField(type=bool, default=False, description="是否启用定时发送说说"),
             "schedule_times": ConfigField(type=list, default=["08:00", "20:00"],
                                           description="定时发送时间列表，按照示例添加修改"),
-            "fluctuation_minutes": ConfigField(type=int, default=0, description="发送时间上下浮动范围（分钟），0表示不浮动"),
-            "random_topic": ConfigField(type=bool, default=True, description="是否使用随机主题（可能会导致重复说说的发布，请关注history_number的设置）"),
-            "fixed_topics": ConfigField(type=list, default=["今日穿搭", "日常碎片PLOG", "生活仪式感", "治愈系天空", "理想的家", "周末去哪儿", "慢生活", "今天吃什么呢", "懒人食谱", "居家咖啡馆", "探店美食", "说走就走的旅行", "小众旅行地", "治愈系风景", "一起去露营", "逛公园", "博物馆奇遇", "穿搭灵感", "复古穿搭", "今日妆容", "护肤日常", "小众品牌", "我家宠物好可爱", "阳台花园", "运动打卡", "瑜伽日常", "轻食记", "看书打卡", "我的观影报告", "咖啡店日记", "手帐分享", "画画日常", "手工DIY", "沙雕日常", "沉浸式体验", "开箱视频", "提升幸福感的小物", "圣诞氛围感", "冬日限定快乐", "灵感碎片", "艺术启蒙", "色彩美学", "每日一诗", "哲学小谈", "存在主义咖啡馆", "艺术史趣闻", "审美积累", "现代主义漫步", "东方美学"],
+            "fluctuation_minutes": ConfigField(type=int, default=0,
+                                               description="发送时间上下浮动范围（分钟），0表示不浮动"),
+            "random_topic": ConfigField(type=bool, default=True,
+                                        description="是否使用随机主题（可能会导致重复说说的发布，请关注history_number的设置）"),
+            "fixed_topics": ConfigField(type=list,
+                                        default=["今日穿搭", "日常碎片PLOG", "生活仪式感", "治愈系天空", "理想的家",
+                                                 "周末去哪儿", "慢生活", "今天吃什么呢", "懒人食谱", "居家咖啡馆",
+                                                 "探店美食", "说走就走的旅行", "小众旅行地", "治愈系风景", "一起去露营",
+                                                 "逛公园", "博物馆奇遇", "穿搭灵感", "复古穿搭", "今日妆容", "护肤日常",
+                                                 "小众品牌", "我家宠物好可爱", "阳台花园", "运动打卡", "瑜伽日常",
+                                                 "轻食记", "看书打卡", "我的观影报告", "咖啡店日记", "手帐分享",
+                                                 "画画日常", "手工DIY", "沙雕日常", "沉浸式体验", "开箱视频",
+                                                 "提升幸福感的小物", "圣诞氛围感", "冬日限定快乐", "灵感碎片",
+                                                 "艺术启蒙", "色彩美学", "每日一诗", "哲学小谈", "存在主义咖啡馆",
+                                                 "艺术史趣闻", "审美积累", "现代主义漫步", "东方美学"],
                                         description="固定主题列表（当random_topic为False时从中随机选择）"),
         },
     }
