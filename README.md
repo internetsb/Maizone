@@ -58,7 +58,7 @@ Maizone（麦麦空间）插件v2.3.0，让你的麦麦发说说，读QQ空间�
 
 **C方案：B方案失败后启用，请用botQQ扫描插件目录下的二维码登录（有效期约一天）**
 
-**D方案：读取已保存的cookie**
+**D方案：读取已保存的cookie，可手动填写，[如何获取QQ空间cookie？](https://www.xjr7670.com/articles/how-to-get-qzone-cookie.html)**
 
 
 
