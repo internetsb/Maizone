@@ -227,7 +227,6 @@ async def renew_cookies(host: str = "127.0.0.1", port: str = "9999", napcat_toke
     current_time = time.time()
     if (current_time - _last_qr_login_time) < 10 * 3600:
         logger.info("上次更新cookie在10小时内，跳过更新cookie")
-        update_last_qr_login_time()
         return
     # 尝试通过napcat获取cookie
     uin = config_api.get_global_config('bot.qq_account', "")
@@ -299,4 +298,5 @@ async def renew_cookies(host: str = "127.0.0.1", port: str = "9999", napcat_toke
         raise
     except Exception as e:
         logger.error(f"处理cookie时发生异常: {str(e)}")
+
         raise RuntimeError(f"处理cookie时发生异常: {str(e)}")
