@@ -286,6 +286,7 @@ async def renew_cookies(host: str = "127.0.0.1", port: str = "9999", napcat_toke
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(cookie_dict, f, indent=4, ensure_ascii=False)
         logger.info(f"[OK] cookies 已保存至: {file_path}")
+        update_last_qr_login_time()
     # 异常处理
     except PermissionError as e:
         logger.error(f"文件写入权限不足: {str(e)}")
