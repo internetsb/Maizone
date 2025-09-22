@@ -10,6 +10,7 @@ from src.common.logger import get_logger
 from .qzone_api import create_qzone_api
 from .cookie_manager import renew_cookies
 from .utils import send_feed, read_feed, comment_feed, like_feed
+from .scheduled_tasks import _save_processed_list, _load_processed_list
 
 logger = get_logger('Maizone.actions')
 # ===== 插件Action组件 =====
@@ -323,6 +324,7 @@ class ReadFeedAction(BaseAction):
                 return True, 'success'
             return False, '生成回复失败'
         #逐条点赞回复
+        processed_list = _load_processed_list()
         for feed in feeds_list:
             await asyncio.sleep(3 + random.random())
             content = feed["content"]
@@ -372,6 +374,7 @@ class ReadFeedAction(BaseAction):
                     logger.error(f"评论说说'{content}'失败")
                     return False, "评论说说失败"
                 logger.info(f"发送评论'{comment}'成功")
+
             # 点赞说说
             if random.random() <= like_possibility:
                 success = await like_feed(target_qq, fid)
@@ -379,6 +382,8 @@ class ReadFeedAction(BaseAction):
                     logger.error(f"点赞说说'{content}'失败")
                     return False, "点赞说说失败"
                 logger.info(f"点赞说说'{content[:10]}..'成功")
+            processed_list[fid] = []
+        _save_processed_list(processed_list)
         await self.store_action_info(
             action_build_into_prompt=True,
             action_prompt_display=f"执行阅读说说动作完成，你刚刚成功读了以下说说：{feeds_list}，请告知你已经读了说说，生成回复",
