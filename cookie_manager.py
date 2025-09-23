@@ -222,11 +222,11 @@ async def renew_cookies(host: str = "127.0.0.1", port: str = "9999", napcat_toke
     3. 如果clientkey获取失败，尝试使用二维码登录
     4. 如果二维码登录失败，尝试读取本地cookie文件
     """
-    # 10小时内无需更新cookie
+    # 1小时内无需更新cookie
     global _last_qr_login_time
     current_time = time.time()
-    if (current_time - _last_qr_login_time) < 10 * 3600 and _last_qr_login_time != 0:
-        logger.info("上次更新cookie在10小时内，跳过更新cookie")
+    if (current_time - _last_qr_login_time) < 1 * 3600 and _last_qr_login_time != 0:
+        logger.info("上次更新cookie在1小时内，跳过更新cookie")
         return
     # 尝试通过napcat获取cookie
     uin = config_api.get_global_config('bot.qq_account', "")
