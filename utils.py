@@ -20,7 +20,8 @@ plugin_config = component_registry.get_plugin_config('MaizonePlugin')
 models = llm_api.get_available_models()
 prompt_model = config_api.get_plugin_config(plugin_config, "models.text_model", "replyer")  # 获取模型配置
 model_config = models[prompt_model]
-personality = config_api.get_global_config("personality.personality", "一只猫娘") # 人格
+personality = config_api.get_global_config("personality.personality", "一只猫娘")  # 人格
+
 
 async def generate_image_by_sf(api_key: str, story: str, image_dir: str, batch_size: int = 1) -> bool:
     """
@@ -114,6 +115,78 @@ async def generate_image_by_sf(api_key: str, story: str, image_dir: str, batch_s
         logger.error(f"生成图片失败: {e}")
         logger.error(traceback.format_exc())
         return False
+
+
+def format_feed_list(feed_list: List[Dict]) -> str:
+    """
+    格式化说说列表为分层清晰的字符串以便显示
+    Args:
+        feed_list: 说说列表
+
+    Returns:
+        str: 格式化后的字符串
+    """
+    if not feed_list:
+        return "feed_list 为空"
+
+    result = []
+    result.append("=" * 80)
+    result.append("FEED LIST")
+    result.append("=" * 80)
+
+    for i, feed in enumerate(feed_list, 1):
+        result.append(f"\nFeed #{i}")
+        result.append("-" * 40)
+
+        # 基本信息
+        result.append(f"target_qq: {feed.get('target_qq', 'N/A')}")
+        result.append(f"tid: {feed.get('tid', 'N/A')}")
+        result.append(f"content: {feed.get('content', 'N/A')}")
+
+        # 图片信息
+        images = feed.get('images', [])
+        if images:
+            result.append(f"images: {len(images)}")
+            for j, img in enumerate(images, 1):
+                result.append(f"  image_{j}: {img}")
+        else:
+            result.append("images: []")
+
+        # 视频信息
+        videos = feed.get('videos', [])
+        if videos:
+            result.append(f"videos: {len(videos)}")
+            for j, video in enumerate(videos, 1):
+                result.append(f"  video_{j}: {video}")
+        else:
+            result.append("videos: []")
+
+        # 转发内容
+        rt_con = feed.get('rt_con', '')
+        result.append(f"rt_con: {rt_con if rt_con else 'N/A'}")
+
+        # 评论信息
+        comments = feed.get('comments', [])
+        if comments:
+            result.append(f"comments: {len(comments)}")
+            for j, comment in enumerate(comments, 1):
+                result.append(f"  comment_{j}:")
+                result.append(f"    qq_account: {comment.get('qq_account', 'N/A')}")
+                result.append(f"    nickname: {comment.get('nickname', 'N/A')}")
+                result.append(f"    comment_tid: {comment.get('comment_tid', 'N/A')}")
+                result.append(f"    content: {comment.get('content', 'N/A')}")
+                parent_tid = comment.get('parent_tid')
+                result.append(f"    parent_tid: {parent_tid if parent_tid else 'None'}")
+                if j < len(comments):  # 不在最后一个评论后加空行
+                    result.append("")
+        else:
+            result.append("comments: []")
+
+    result.append("=" * 80)
+    result.append(f"总数: {len(feed_list)}")
+
+    return "\n".join(result)
+
 
 async def send_feed(message: str, image_directory: str, enable_image: bool, image_mode: str,
                     ai_probability: float, image_number: int, apikey: str) -> bool:
@@ -216,6 +289,7 @@ async def send_feed(message: str, image_directory: str, enable_image: bool, imag
         logger.error(traceback.format_exc())
         return False
 
+
 async def read_feed(target_qq: str, num: int) -> list[dict]:
     """
     通过调用QZone API的`get_list`方法阅读指定QQ号的说说，返回说说列表。
@@ -232,7 +306,7 @@ async def read_feed(target_qq: str, num: int) -> list[dict]:
 
     try:
         feeds_list = await qzone.get_list(target_qq, num)
-        logger.debug(f"获取到的说说列表: {feeds_list}")
+        logger.debug(f"获取到的说说列表: {format_feed_list(feeds_list)}")
         return feeds_list
     except Exception as e:
         logger.error("获取list失败")
@@ -257,7 +331,7 @@ async def monitor_read_feed(num: int) -> list[dict]:
 
     try:
         feeds_list = await qzone.monitor_get_list(num)
-        logger.debug(f"获取到的说说列表: {feeds_list}")
+        logger.debug(f"获取到的说说列表: {format_feed_list(feeds_list)}")
         return feeds_list
     except Exception as e:
         logger.error("获取list失败")
@@ -314,7 +388,7 @@ async def comment_feed(target_qq: str, fid: str, content: str) -> bool:
     return True
 
 
-async def reply_feed(fid: str,target_qq: str, target_nickname: str, content: str, comment_tid: str) -> bool:
+async def reply_feed(fid: str, target_qq: str, target_nickname: str, content: str, comment_tid: str) -> bool:
     """
     通过调用QZone API的`reply`方法回复指定评论。
 

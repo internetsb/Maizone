@@ -225,8 +225,9 @@ async def renew_cookies(host: str = "127.0.0.1", port: str = "9999", napcat_toke
     # 1小时内无需更新cookie
     global _last_qr_login_time
     current_time = time.time()
-    if (current_time - _last_qr_login_time) < 1 * 3600 and _last_qr_login_time != 0:
-        logger.info("上次更新cookie在1小时内，跳过更新cookie")
+    duration = current_time - _last_qr_login_time
+    if duration < 1 * 3600 and _last_qr_login_time != 0:
+        logger.info(f"上次更新cookie在{duration}秒前，跳过更新cookie")
         return
     # 尝试通过napcat获取cookie
     uin = config_api.get_global_config('bot.qq_account', "")

@@ -15,6 +15,7 @@ from src.chat.utils.utils_image import get_image_manager
 
 logger = get_logger('Maizone.QzoneAPI')
 
+
 # 辅助函数
 def generate_gtk(skey: str) -> str:
     """生成QQ空间的gtk值"""
@@ -22,6 +23,7 @@ def generate_gtk(skey: str) -> str:
     for i in range(len(skey)):
         hash_val += (hash_val << 5) + ord(skey[i])
     return str(hash_val & 2147483647)
+
 
 def get_picbo_and_richval(upload_result):
     """从上传结果中提取图片的picbo和richval值用于发表图片说说"""
@@ -42,7 +44,8 @@ def get_picbo_and_richval(upload_result):
     )
     return picbo, richval
 
-def extract_code(html_content: str) -> Any | None:
+
+def extract_code_html(html_content: str) -> Any | None:
     """从QQ空间响应的HTML内容中提取响应码code的值"""
     try:
         soup = bs4.BeautifulSoup(html_content, 'html.parser')
@@ -62,10 +65,27 @@ def extract_code(html_content: str) -> Any | None:
     except:
         return None
 
+
+def extract_code_json(json_response) -> Any | None:
+    """
+    从QQ空间响应的json内容中提取code值，如果不存在则返回None
+    """
+    try:
+        if isinstance(json_response, str):
+            data = json.loads(json_response)
+        else:
+            data = json_response
+
+        return data.get('code', None)
+    except (json.JSONDecodeError, KeyError, AttributeError):
+        return None
+
+
 def image_to_base64(image: bytes) -> str:
     """将图片转换为base64字符串"""
     pic_base64 = base64.b64encode(image)
     return str(pic_base64)[2:-1]
+
 
 class QzoneAPI:
     # QQ空间cgi常量
@@ -85,6 +105,7 @@ class QzoneAPI:
 
         if 'p_skey' in self.cookies:
             self.gtk2 = generate_gtk(self.cookies['p_skey'])
+
     async def do(
             self,
             method: str,
@@ -251,7 +272,9 @@ class QzoneAPI:
             }
         )
         if res.status_code == 200:
-            logger.debug(f"发表说说响应: {res.text}")
+            if extract_code_json(res.text) != 0:
+                logger.error(f"发表说说失败，响应内容: {res.text}")
+                raise Exception("发表说说失败: " + res.text)
             return res.json()['tid']
         else:
             raise Exception("发表说说失败: " + res.text)
@@ -298,7 +321,9 @@ class QzoneAPI:
             },
         )
         if res.status_code == 200:
-            logger.debug(f"点赞响应: {res.text}")
+            if extract_code_json(res.text) != 0:
+                logger.error("点赞失败" + res.text)
+                return False
             return True
         else:
             raise Exception("点赞失败: " + res.text)
@@ -347,7 +372,9 @@ class QzoneAPI:
             },
         )
         if res.status_code == 200:
-            logger.debug(f"评论响应: {res.text}")
+            if extract_code_html(res.text) != 0:
+                logger.error("评论失败" + res.text)
+                return False
             return True
         else:
             raise Exception("评论失败: " + res.text)
@@ -371,19 +398,19 @@ class QzoneAPI:
         """
         uin = self.uin
         post_data = {
-                "topicId": f"{uin}_{fid}__1",  # 使用标准评论格式，而不是针对特定评论
-                "uin": uin,
-                "hostUin": uin,
-                "content": f"回复@ {target_nickname} ：{content}",  # 内容中明确标示回复对象
-                "format": "fs",
-                "plat": "qzone",
-                "source": "ic",
-                "platformid": 52,
-                "ref": "feeds",
-                "richtype": "",
-                "richval": "",
-                "paramstr": f"@{target_nickname}",  # 确保触发@提醒机制
-                }
+            "topicId": f"{uin}_{fid}__1",  # 使用标准评论格式，而不是针对特定评论
+            "uin": uin,
+            "hostUin": uin,
+            "content": f"回复@ {target_nickname} ：{content}",  # 内容中明确标示回复对象
+            "format": "fs",
+            "plat": "qzone",
+            "source": "ic",
+            "platformid": 52,
+            "ref": "feeds",
+            "richtype": "",
+            "richval": "",
+            "paramstr": f"@{target_nickname}",  # 确保触发@提醒机制
+        }
         res = await self.do(
             method="POST",
             url=self.REPLY_URL,
@@ -396,7 +423,7 @@ class QzoneAPI:
             },
         )
         if res.status_code == 200:
-            if extract_code(res.text) != 0:
+            if extract_code_html(res.text) != 0:
                 logger.error("回复失败" + res.text)
                 return False
             return True
@@ -474,7 +501,7 @@ class QzoneAPI:
                     if isinstance(commentlist, list):  # 确保一定是可迭代的列表
                         for comment in commentlist:
                             qq_nickname = comment.get("name")
-                            if uin_nickname == qq_nickname and target_qq != str(self.uin): # 已评论且不是自己的说说
+                            if uin_nickname == qq_nickname and target_qq != str(self.uin):  # 已评论且不是自己的说说
                                 logger.info('已评论过此说说，即将跳过')
                                 is_comment = True
                                 break
@@ -610,7 +637,7 @@ class QzoneAPI:
             # 3. 提取说说内容
         try:
             feeds_list = []
-            num_self = 0 # 记录自己的说说数量
+            num_self = 0  # 记录自己的说说数量
             for feed in data:
                 if not feed:  # 跳过None值
                     continue
@@ -620,7 +647,7 @@ class QzoneAPI:
                     continue
                 target_qq = feed.get('uin', '')
                 if target_qq == str(self.uin):
-                    num_self += 1 # 统计自己的说说数量
+                    num_self += 1  # 统计自己的说说数量
                 tid = feed.get('key', '')
                 if not target_qq or not tid:
                     logger.error(f"无效的说说数据: target_qq={target_qq}, tid={tid}")
@@ -730,7 +757,7 @@ class QzoneAPI:
             logger.error(f'解析说说错误：{str(e)}', exc_info=True)
             return []
 
-    async def get_send_history(self, num:int) -> str:
+    async def get_send_history(self, num: int) -> str:
         """
         构建说说发送历史prompt。
         Args:
@@ -759,6 +786,7 @@ class QzoneAPI:
                     ===================
                     """
         return history
+
 
 def create_qzone_api() -> QzoneAPI | None:
     """
@@ -790,4 +818,3 @@ def create_qzone_api() -> QzoneAPI | None:
         return qzone
     else:
         return None
-
