@@ -42,6 +42,8 @@ Maizone（麦麦空间）插件v2.3.1，让你的麦麦发说说，读QQ空间�
    #uv安装，在plugins\Maizone文件夹下
    uv pip install -r .\requirements.txt -i https://mirrors.aliyun.com/pypi/simple --upgrade
    #一键包用户可在启动时选择交互式安装pip模块，逐行安装MaiBot\plugins\Maizone\requirements.txt中的依赖
+   #docker安装，宿主机内
+   docker exec -it maim-bot-core uv pip install bs4 json5 --system
    ```
 
 4. 启动一次麦麦自动生成`config.toml`配置文件，成功生成配置文件即说明读取插件成功（未生成配置文件请检查启动麦麦时的加载插件日志）
