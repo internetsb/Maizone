@@ -66,7 +66,7 @@ Maizone（麦麦空间）插件v2.3.2，让你的麦麦发说说，读QQ空间�
 
 > [!IMPORTANT]
 >
-> Docker用户可将Napcat的HTTP Server的Host栏改为core（或0.0.0.0[不推荐]），插件的config.toml中的http_host栏改为napcat。经测试亦可正常使用
+> Docker用户可将Napcat设置的HTTP Server的Host栏改为core（或0.0.0.0[不推荐]），插件的config.toml中的http_host栏改为"napcat"（注意引号）。经测试亦可正常使用
 
 ### 修改配置文件
 请设置：
