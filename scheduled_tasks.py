@@ -263,7 +263,7 @@ class FeedMonitor:
                     # 为防止字典无限增长，限制字典大小
                     oldest_fid = next(iter(processed_comments))
                     processed_comments.pop(oldest_fid)
-                return True, 'success'
+            return True, 'success'
         except Exception as e:
             logger.error(f"点赞评论失败: {str(e)}")
             return False, "点赞评论失败"
@@ -278,12 +278,15 @@ class ScheduleSender:
         self.task = None
         self.last_send_time = 0
         self.fluctuate_table = []  # 记录波动后的发送时间表
+        self.last_reset_date = None  # 记录上次重置发送时间表日期
 
     async def start(self):
         """启动定时发送任务"""
         if self.is_running:
             return
         self.is_running = True
+        self.last_reset_date = datetime.datetime.now().date()
+        self._generate_fluctuate_table()  # 生成时间表
         self.task = asyncio.create_task(self._schedule_loop())
         logger.info("定时发送说说任务已启动")
 
@@ -340,12 +343,20 @@ class ScheduleSender:
         self.fluctuate_table.sort()
         logger.info(f"波动后的发送时间表: {self.fluctuate_table}")
 
+    def _should_reset_schedule(self):
+        """检查是否需要重置时间表（每天0点）"""
+        current_date = datetime.datetime.now().date()
+        return current_date != self.last_reset_date
+
     async def _schedule_loop(self):
         """定时发送循环"""
         while self.is_running:
-            if not self.fluctuate_table:
-                self._generate_fluctuate_table()
             try:
+                # 检查是否需要重置时间表（每天0点）
+                if self._should_reset_schedule():
+                    logger.info("检测到日期变化，重置发送时间表")
+                    self.last_reset_date = datetime.datetime.now().date()
+                    self._generate_fluctuate_table()
                 # 获取当前时间
                 current_time = datetime.datetime.now().strftime("%H:%M")
                 # 检查是否到达发送时间
@@ -356,6 +367,7 @@ class ScheduleSender:
                         self.last_send_time = time.time()
                         await self.send_scheduled_feed()
                         self.fluctuate_table.remove(current_time)
+                        logger.info(f"剩余发送时间点: {self.fluctuate_table}")
 
                 # 每分钟检查一次
                 await asyncio.sleep(60)
@@ -364,6 +376,7 @@ class ScheduleSender:
                 break
             except Exception as e:
                 logger.error(f"定时发送任务出错: {str(e)}")
+                await asyncio.sleep(60)  # 出错后等待一分钟再继续
 
     async def send_scheduled_feed(self):
         """发送定时说说"""

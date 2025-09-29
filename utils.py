@@ -129,6 +129,11 @@ def format_feed_list(feed_list: List[Dict]) -> str:
     if not feed_list:
         return "feed_list 为空"
 
+    # 检查是否是错误情况
+    if len(feed_list) == 1 and "error" in feed_list[0]:
+        error_msg = feed_list[0].get("error", "未知错误")
+        return f"{error_msg}"
+
     result = []
     result.append("=" * 80)
     result.append("FEED LIST")

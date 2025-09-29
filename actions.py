@@ -4,13 +4,25 @@ from pathlib import Path
 from typing import Tuple
 
 from src.plugin_system import BaseAction, ActionActivationType
-from src.plugin_system.apis import llm_api, config_api, person_api, generator_api
+from src.plugin_system.apis import llm_api, config_api, person_api, generator_api, send_api
 from src.common.logger import get_logger
 
 from .qzone_api import create_qzone_api
 from .cookie_manager import renew_cookies
 from .utils import send_feed, read_feed, comment_feed, like_feed
 from .scheduled_tasks import _save_processed_list, _load_processed_list
+
+async def reply_send(chat_stream, extra_info: str)-> bool:
+    """生成回复并发送"""
+    success, response = await generator_api.generate_reply(
+        chat_stream=chat_stream,
+        chat_id=chat_stream.stream_id,
+        extra_info=extra_info
+    )
+    if success and response:
+        await send_api.custom_reply_set_to_stream(response.reply_set, chat_stream.stream_id)
+        return True
+    return False
 
 logger = get_logger('Maizone.actions')
 # ===== 插件Action组件 =====
@@ -58,15 +70,8 @@ class SendFeedAction(BaseAction):
         user_id = await person_api.get_person_value(person_id, "user_id")
         if not user_id or user_id == "unknown":# 若用户未知，拒绝执行
             logger.error(f"未找到用户 {user_name} 的user_id")
-            success, response = await generator_api.generate_reply(
-                chat_stream=self.chat_stream,
-                extra_info=f'你不认识{user_name}，请用符合你人格特点的方式拒绝请求'
-            )
-
-            if success and response:
-                for (reply_type, reply_content) in response.reply_set:
-                    await self.send_text(reply_content)
-                    await asyncio.sleep(1 + random.uniform(0, 1))
+            if not await reply_send(self.chat_stream, f'你不认识{user_name}，请用符合你人格特点的方式拒绝请求'):
+                return False, "生成回复失败"
             await self.store_action_info(
                 action_build_into_prompt=True,
                 action_prompt_display="拒绝执行发送说说动作：无法获取未知用户QQ",
@@ -76,20 +81,14 @@ class SendFeedAction(BaseAction):
 
         if not self.check_permission(user_id):  # 若权限不足，拒绝执行
             logger.info(f"{user_id}无{self.action_name}权限")
-            success, response, = await generator_api.generate_reply(
-                chat_stream=self.chat_stream,
-                extra_info=f'{user_name}无权命令你发送说说，请用符合你人格特点的方式拒绝请求'
-            )
-            if success and response:
-                for (reply_type, reply_content) in response.reply_set:
-                    await self.send_text(reply_content)
-                    await asyncio.sleep(1 + random.uniform(0, 1))
+            if not await reply_send(self.chat_stream, f'{user_name}无权命令你发说说，请用符合人格的方式进行拒绝的回复'):
+                return False, "生成回复失败"
             await self.store_action_info(
                 action_build_into_prompt=True,
                 action_prompt_display="拒绝执行发送说说动作：用户权限不足",
                 action_done=False,
             )
-            return False, ""
+            return False, "无权限"
         else:
             logger.info(f"{user_id}拥有{self.action_name}权限")
 
@@ -174,17 +173,9 @@ class SendFeedAction(BaseAction):
             action_done=True,
         )
         # 生成回复
-        success, response = await generator_api.generate_reply(
-            chat_stream=self.chat_stream,
-            extra_info=f'你刚刚发了一条说说，内容为{story}'
-        )
-
-        if success and response:
-            for (reply_type, reply_content) in response.reply_set:
-                await self.send_text(reply_content)
-                await asyncio.sleep(1 + random.uniform(0, 1))
-            return True, 'success'
-        return False, '生成回复失败'
+        if not await reply_send(self.chat_stream, f'你刚刚发了一条说说，内容为{story}，请生成一句话的回复'):
+            return False, "生成回复失败"
+        return True, 'success'
 
 
 class ReadFeedAction(BaseAction):
@@ -232,15 +223,8 @@ class ReadFeedAction(BaseAction):
         user_id = await person_api.get_person_value(person_id, "user_id")
         if not user_id or user_id == "unknown":
             logger.error(f"未找到用户 {user_name} 的user_id")
-            success, response = await generator_api.generate_reply(
-                chat_stream=self.chat_stream,
-                extra_info=f'你不认识{user_name}，请用符合你人格特点的方式拒绝请求'
-            )
-
-            if success and response:
-                for (reply_type, reply_content) in response.reply_set:
-                    await self.send_text(reply_content)
-                    await asyncio.sleep(1 + random.uniform(0, 1))
+            if not await reply_send(self.chat_stream, f'你不认识{user_name}，请用符合你人格特点的方式拒绝请求'):
+                return False, "生成回复失败"
             await self.store_action_info(
                 action_build_into_prompt=True,
                 action_prompt_display="拒绝执行阅读说说动作：无法获取未知用户QQ",
@@ -249,20 +233,14 @@ class ReadFeedAction(BaseAction):
             return False, "未找到用户的user_id"
         if not self.check_permission(user_id):  # 若权限不足
             logger.info(f"{user_id}无{self.action_name}权限")
-            success, response = await generator_api.generate_reply(
-                chat_stream=self.chat_stream,
-                extra_info=f'{user_name}无权命令你阅读说说，请用符合人格的方式进行拒绝的回复'
-            )
-            if success and response:
-                for (reply_type, reply_content) in response.reply_set:
-                    await self.send_text(reply_content)
-                    await asyncio.sleep(1 + random.uniform(0, 1))
+            if not await reply_send(self.chat_stream, f'{user_name}无权命令你读说说，请用符合人格的方式进行拒绝的回复'):
+                return False, "生成回复失败"
             await self.store_action_info(
                 action_build_into_prompt=True,
                 action_prompt_display="拒绝执行阅读说说动作：用户权限不足",
                 action_done=False,
             )
-            return False, ""
+            return False, "无权限"
         else:
             logger.info(f"{user_id}拥有{self.action_name}权限")
 
@@ -312,17 +290,9 @@ class ReadFeedAction(BaseAction):
                 action_prompt_display=f"执行阅读说说动作失败：未能读取到说说，错误原因：{feeds_list[0].get('error')}",
                 action_done=False,
             )
-            success, response = await generator_api.generate_reply(
-                chat_stream=self.chat_stream,
-                extra_info=f'你没有读取到任何说说，{feeds_list[0].get("error")}'
-            )
-
-            if success and response:
-                for (reply_type, reply_content) in response.reply_set:
-                    await self.send_text(reply_content)
-                    await asyncio.sleep(1 + random.uniform(0, 1))
-                return True, 'success'
-            return False, '生成回复失败'
+            if not await reply_send(self.chat_stream, f"执行阅读说说动作失败：未能读取到说说，原因：{feeds_list[0].get('error')}"):
+                return False, "生成回复失败"
+            return False, feeds_list[0].get('error')
         #逐条点赞回复
         processed_list = _load_processed_list()
         for feed in feeds_list:
@@ -386,8 +356,10 @@ class ReadFeedAction(BaseAction):
         _save_processed_list(processed_list)
         await self.store_action_info(
             action_build_into_prompt=True,
-            action_prompt_display=f"执行阅读说说动作完成，你刚刚成功读了以下说说：{feeds_list}，请告知你已经读了说说，生成回复",
+            action_prompt_display=f"执行阅读说说动作完成，你刚刚成功读了以下说说：{feeds_list}",
             action_done=True,
         )
+        if not await reply_send(self.chat_stream, f'你刚刚成功读了以下说说：{feeds_list}'):
+            return False, "生成回复失败"
         return True, 'success'
 
