@@ -157,13 +157,12 @@ class SendFeedAction(BaseAction):
 
         logger.info(f"生成说说内容：'{story}'，即将发送")
         if image_mode != "only_emoji" and not apikey:
-            logger.warning("未配置apikey，无法生成图片")
+            logger.warning("未配置apikey，无法生成图片，切换到only_emoji模式")
             image_mode = "only_emoji"  # 如果没有apikey，则只使用表情包
 
         # 发送说说
         enable_image = self.get_config("send.enable_image", "true")
-        success = await send_feed(story, image_dir, enable_image, image_mode, ai_probability, image_number,
-                                  apikey)
+        success = await send_feed(story, image_dir, enable_image, image_mode, ai_probability, image_number)
         if not success:
             return False, "发送说说失败"
         logger.info(f"成功发送说说: {story}")

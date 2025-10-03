@@ -465,12 +465,11 @@ class ScheduleSender:
         logger.info(f"成功生成说说内容：'{story}'")
         # 检查apikey
         if image_mode != "only_emoji" and not apikey:
-            logger.error('请填写apikey')
+            logger.warning('未配置API密钥，无法使用AI生成图片，将改为only_emoji模式')
             image_mode = "only_emoji"  # 如果没有apikey，则只使用表情包
 
         # 发送说说
-        success = await send_feed(story, image_dir, enable_image, image_mode, ai_probability, image_number,
-                                  apikey)
+        success = await send_feed(story, image_dir, enable_image, image_mode, ai_probability, image_number)
         if success:
             logger.info(f"定时任务成功发送说说: {story}")
         else:

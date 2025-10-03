@@ -14,12 +14,12 @@ class MaizonePlugin(BasePlugin):
     """Maizone插件 - 让麦麦发QQ空间"""
     plugin_name = "MaizonePlugin"
     plugin_description = "让麦麦实现QQ空间点赞、评论、发说说"
-    plugin_version = "2.3.2"
+    plugin_version = "2.4.0"
     plugin_author = "internetsb"
     enable_plugin = True
     config_file_name = "config.toml"
     dependencies = []
-    python_dependencies = ['httpx', 'bs4', 'json5']
+    python_dependencies = ['httpx', 'Pillow', 'bs4', 'json5']
 
     config_section_descriptions = {
         "plugin": "插件启用配置",
@@ -35,12 +35,17 @@ class MaizonePlugin(BasePlugin):
             "enable": ConfigField(type=bool, default=True, description="是否启用插件"),
             "http_host": ConfigField(type=str, default='127.0.0.1', description="Napcat设定http服务器地址"),
             "http_port": ConfigField(type=str, default='9999', description="Napcat设定http服务器端口号"),
-            "napcat_token": ConfigField(type=str, default="", description="Napcat服务认证Token（默认为空）"),
+            "napcat_token": ConfigField(type=str, default="", description="Napcat服务认证Token"),
         },
         "models": {
-            "text_model": ConfigField(type=str, default="replyer", description="生成文本的模型（从model_config读取）"),
+            "text_model": ConfigField(type=str, default="replyer", description="生成文本的模型（从麦麦model_config读取），默认即可"),
+            "image_provider": ConfigField(type=str, default="ModelScope",
+                                          description="图片生成服务提供商（ModelScope或SiliconFlow）"),
+            "image_model": ConfigField(type=str, default="Qwen/Qwen-Image-Edit",
+                                       description="图片生成模型（从对应服务商官网获取），如SiliconFlow的Kwai-Kolors/Kolors"),
+            "image_ref": ConfigField(type=bool, default="False", description="是否启用人设参考图（请重命名为done_ref，后缀不变，放入images文件夹）"),
+            "api_key": ConfigField(type=str, default="", description="相应提供商的API密钥（用于生成说说配图）"),
             "show_prompt": ConfigField(type=bool, default=False, description="是否显示生成prompt内容"),
-            "api_key": ConfigField(type=str, default="", description="SiliconFlow API密钥（用于生成说说配图）"),
         },
         "send": {
             "permission": ConfigField(type=list, default=['114514', '1919810', '1523640161'],
@@ -51,7 +56,7 @@ class MaizonePlugin(BasePlugin):
             "image_mode": ConfigField(type=str, default='random',
                                       description="图片使用方式: only_ai(仅AI生成)/only_emoji(仅表情包)/random(随机混合)"),
             "ai_probability": ConfigField(type=float, default=0.5, description="random模式下使用AI图片的概率(0-1)"),
-            "image_number": ConfigField(type=int, default=1, description="使用的图片数量(范围1至4)"),
+            "image_number": ConfigField(type=int, default=1, description="使用的图片或表情包数量(范围1至4)(仅部分模型支持多图，如Kolors)"),
             "history_number": ConfigField(type=int, default=5,
                                           description="生成说说时参考的历史说说数量，越多越能避免重复内容"),
             "prompt": ConfigField(type=str,

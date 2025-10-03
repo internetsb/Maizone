@@ -1,113 +1,184 @@
+import base64
+import datetime
+import json
 import os
 import random
-import datetime
 import traceback
-import base64
-import json
-from typing import List, Dict
+import asyncio
+from io import BytesIO
+from PIL import Image
 from pathlib import Path
+from typing import List, Dict
 
 import httpx
 
-from .qzone_api import create_qzone_api
 from src.common.logger import get_logger
 from src.plugin_system.apis import llm_api, config_api, emoji_api
 from src.plugin_system.core import component_registry
+from .qzone_api import create_qzone_api
 
 logger = get_logger('Maizone.组件')
 
-plugin_config = component_registry.get_plugin_config('MaizonePlugin')
-models = llm_api.get_available_models()
-prompt_model = config_api.get_plugin_config(plugin_config, "models.text_model", "replyer")  # 获取模型配置
-model_config = models[prompt_model]
-personality = config_api.get_global_config("personality.personality", "一只猫娘")  # 人格
+
+def encode_file(img):
+    """将PIL.Image对象编码为base64 data URL"""
+    form = (img.format or "PNG").upper()
+    buffer = BytesIO()
+    img.save(buffer, format=form)
+    byte_data = buffer.getvalue()
+    mime_type = f"image/{form.lower()}"
+    encoded_string = base64.b64encode(byte_data).decode("utf-8")
+    return f"data:{mime_type};base64,{encoded_string}"
 
 
-async def generate_image_by_sf(api_key: str, story: str, image_dir: str, batch_size: int = 1) -> bool:
+async def generate_image(provider: str, image_model: str, api_key: str, image_prompt: str, image_dir: str,
+                         batch_size: int = 1) -> bool:
     """
-    用siliconflow API生成说说配图保存至对应路径
+    用ModelScope或SiliconFlow API生成说说配图保存至对应路径
 
     Args:
-        api_key (str): SiliconFlow API的密钥。
-        story (str): 说说内容，用于生成配图的描述。
+        provider (str): 图片生成服务提供商，支持 "ModelScope" 或 "SiliconFlow"。
+        image_model (str): 使用的图片生成模型名称。
+        api_key (str): ModelScope 或 SiliconFlow API密钥。
+        image_prompt (str): 说说内容，用于生成配图的描述。
         image_dir (str): 图片保存的目录路径。
-        batch_size (int): 每次生成的图片数量，默认为1。
+        batch_size (int): 每次生成的图片数量，默认为1(Qwen不支持)。
 
     Returns:
         bool: 如果生成成功返回True，否则返回False。
 
     """
-    logger.info(f"正在生成图片提示词...")
-    # 生成图片提示词
-    global personality
-    prompt = f"""
-        请根据以下QQ空间说说内容配图，并构建生成配图的风格和prompt。
-        说说主人信息：'{personality}'。
-        说说内容:'{story}'。 
-        请注意：仅回复用于生成图片的prompt，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )
-        """
-
-    success, image_prompt, reasoning, model_name = await llm_api.generate_with_model(
-        prompt=prompt,
-        model_config=model_config,
-        request_type="story.generate",
-        temperature=0.3,
-        max_tokens=1000
-    )
-    if success:
-        logger.info(f'即将生成说说配图：{image_prompt}')
-    else:
-        logger.error('生成说说配图prompt失败')
     # 生成图片
+    plugin_config = component_registry.get_plugin_config('MaizonePlugin')
+    logger.info(f"将使用{provider}-{image_model}模型生成图片...")
     try:
-        # SiliconFlow API
-        sf_url = "https://api.siliconflow.cn/v1/images/generations"
-        sf_headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
-        sf_data = {
-            "model": "Kwai-Kolors/Kolors",
-            "prompt": image_prompt,
-            "negative_prompt": "lowres, bad anatomy, bad hands, text, error, cropped, worst quality, low quality, "
-                               "normal quality, jpeg artifacts, signature, watermark, username, blurry",
-            "image_size": "1024x1024",
-            "batch_size": batch_size,
-            "seed": random.randint(1, 9999999999),
-            "num_inference_steps": 20,
-            "guidance_scale": 7.5,
-        }
+        if provider.lower() == "siliconflow":
+            # SiliconFlow API
+            url = "https://api.siliconflow.cn/v1/images/generations"
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            }
+            data = {
+                "model": image_model,
+                "prompt": image_prompt,
+                "negative_prompt": "lowres, bad anatomy, bad hands, text, error, cropped, worst quality, low quality, "
+                                   "normal quality, jpeg artifacts, signature, watermark, username, blurry",
+                "seed": random.randint(1, 9999999999),
+            }
+            if image_model == "Kwai-Kolors/Kolors":
+                data["batch_size"] = batch_size  # Kolors模型支持多图
 
-        async with httpx.AsyncClient() as client:
-            # 发送请求
-            res = await client.post(sf_url, headers=sf_headers, json=sf_data, timeout=30.0)
-            if res.status_code != 200:
-                logger.error(f'生成图片出错，错误码[{res.status_code}]')
-                logger.error(f'错误响应: {res.text}')
-                return False
+            # 查找参考图片
+            ref_images = list(Path(image_dir).glob("done_ref.*"))
+            if ref_images and config_api.get_plugin_config(plugin_config, "models.image_ref", "False"):
+                image = Image.open(ref_images[0])
+                data["image"] = encode_file(image)
 
-            json_data = res.json()
-            image_urls = [img["url"] for img in json_data["images"]]
-
-            # 确保目录存在
-            Path(image_dir).mkdir(parents=True, exist_ok=True)
-
-            # 下载并保存图片
-            for i, img_url in enumerate(image_urls):
-                try:
-                    # 下载图片
-                    img_response = await client.get(img_url, timeout=60.0)
-                    img_response.raise_for_status()
-
-                    filename = f"sf_{i}.png"
-                    save_path = Path(image_dir) / filename
-                    with open(save_path, "wb") as f:
-                        f.write(img_response.content)
-                    logger.info(f"图片已保存至: {save_path}")
-
-                except Exception as e:
-                    logger.error(f"下载图片失败: {str(e)}")
+            async with httpx.AsyncClient() as client:
+                # 发送请求
+                res = await client.post(url, headers=headers, json=data, timeout=60.0)
+                if res.status_code != 200:
+                    logger.error(f'生成图片出错，错误码[{res.status_code}]')
+                    logger.error(f'错误响应: {res.text}')
                     return False
+                json_data = res.json()
+                image_urls = [img["url"] for img in json_data["images"]]
+
+                # 确保目录存在
+                Path(image_dir).mkdir(parents=True, exist_ok=True)
+
+                # 下载并保存图片
+                for i, img_url in enumerate(image_urls):
+                    try:
+                        # 下载图片
+                        img_response = await client.get(img_url, timeout=60.0)
+                        img_response.raise_for_status()
+
+                        filename = f"sf_{i}.png"
+                        save_path = Path(image_dir) / filename
+
+                        # 处理图片
+                        image = Image.open(BytesIO(img_response.content))
+                        image.save(save_path)
+                        logger.info(f"图片已保存至: {save_path}")
+
+                    except Exception as e:
+                        logger.error(f"下载图片失败: {str(e)}")
+                        return False
+
+        elif provider.lower() == "modelscope":
+            # ModelScope API
+            base_url = 'https://api-inference.modelscope.cn/'
+            common_headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            }
+
+            # 准备请求数据
+            data_ = {
+                "model": image_model,
+                "prompt": image_prompt,
+                "negative_prompt": "lowres, bad anatomy, bad hands, text, error, cropped, worst quality, low quality, "
+                                   "normal quality, jpeg artifacts, signature, watermark, username, blurry",
+            }
+
+            # 查找参考图片
+            ref_images = list(Path(image_dir).glob("done_ref.*"))
+            if ref_images and config_api.get_plugin_config(plugin_config, "models.image_ref", "False"):
+                image = Image.open(ref_images[0])
+                data_["image"] = encode_file(image)
+
+            async with httpx.AsyncClient() as client:
+                # 发送异步生成请求
+                response = await client.post(
+                    f"{base_url}v1/images/generations",
+                    headers={**common_headers, "X-ModelScope-Async-Mode": "true"},
+                    content=json.dumps(data_, ensure_ascii=False).encode('utf-8'),
+                    timeout=60.0
+                )
+                response.raise_for_status()
+                task_id = response.json()["task_id"]
+
+                # 轮询任务状态
+                while True:
+                    result = await client.get(
+                        f"{base_url}v1/tasks/{task_id}",
+                        headers={**common_headers, "X-ModelScope-Task-Type": "image_generation"},
+                        timeout=60.0
+                    )
+                    result.raise_for_status()
+                    data = result.json()
+
+                    if data["task_status"] == "SUCCEED":
+                        # 下载生成的图片
+                        image_url = data["output_images"][0]
+                        img_response = await client.get(image_url, timeout=60.0)
+                        img_response.raise_for_status()
+
+                        # 处理图片
+                        image = Image.open(BytesIO(img_response.content))
+
+                        # 确保目录存在
+                        Path(image_dir).mkdir(parents=True, exist_ok=True)
+
+                        # 保存图片
+                        filename = f"ms_result.jpg"
+                        save_path = Path(image_dir) / filename
+                        image.save(save_path)
+                        logger.info(f"图片已保存至: {save_path}")
+                        break
+
+                    elif data["task_status"] == "FAILED":
+                        logger.error("生成图片任务失败")
+                        return False
+
+                    # 等待5秒后再次检查
+                    await asyncio.sleep(5)
+
+        else:
+            logger.error(f"不支持的图片生成服务提供商: {provider}")
+            return False
 
         return True
 
@@ -193,8 +264,13 @@ def format_feed_list(feed_list: List[Dict]) -> str:
     return "\n".join(result)
 
 
-async def send_feed(message: str, image_directory: str, enable_image: bool, image_mode: str,
-                    ai_probability: float, image_number: int, apikey: str) -> bool:
+async def send_feed(message: str,
+                    image_directory: str = "",
+                    enable_image: bool = False,
+                    image_mode: str = "random",
+                    ai_probability: float = 0.5,
+                    image_number: int = 1,
+                    ) -> bool:
     """
     发送说说及图片目录下的所有未处理图片。
 
@@ -205,7 +281,6 @@ async def send_feed(message: str, image_directory: str, enable_image: bool, imag
         image_mode (str): 图片模式，可选值为 "only_ai", "only_emoji", "random"。
         ai_probability (float): 在随机模式下使用AI生成图片的概率，范围为0到1。
         image_number (int): 要生成的图片数量，范围为1到4。
-        apikey (str): SiliconFlow API的密钥，用于AI图片生成。
 
     Returns:
         bool: 如果发送成功返回True，否则返回False。
@@ -245,10 +320,42 @@ async def send_feed(message: str, image_directory: str, enable_image: bool, imag
     # 获取图片
     if use_ai:
         # 使用AI生成图片
-        if apikey:
-            ai_success = await generate_image_by_sf(
-                api_key=apikey,
-                story=message,
+        plugin_config = component_registry.get_plugin_config('MaizonePlugin')
+        if api_key := config_api.get_plugin_config(plugin_config, "models.api_key", ""):
+            models = llm_api.get_available_models()
+            prompt_model = config_api.get_plugin_config(plugin_config, "models.text_model", "replyer")  # 获取模型配置
+            model_config = models[prompt_model]
+            personality = config_api.get_global_config("personality.personality", "一只猫娘")  # 人格
+            image_provider = config_api.get_plugin_config(plugin_config, "models.image_provider", "SiliconFlow")
+            image_model = config_api.get_plugin_config(plugin_config, "models.image_model",
+                                                       "Kwai-Kolors/Kolors")  # 获取图片模型配置
+            enable_ref = config_api.get_plugin_config(plugin_config, "models.image_ref", "False")  # 启用参考图
+            logger.info(f"正在生成图片提示词...")
+            # 生成图片提示词
+            prompt = f"""
+                请根据以下QQ空间说说内容配图，并构建生成配图的风格和prompt。
+                说说主人信息：'{personality}'。
+                说说内容:'{message}'。
+                请注意：仅回复用于生成图片的prompt，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )
+                """
+            if enable_ref:
+                prompt += "说说主人的人设参考图片将随同提示词一起发送给生图AI，可使用'in the style of'或'基于此图'等描述引导生成风格"
+            success, image_prompt, reasoning, model_name = await llm_api.generate_with_model(
+                prompt=prompt,
+                model_config=model_config,
+                request_type="story.generate",
+                temperature=0.3,
+                max_tokens=1000
+            )
+            if success:
+                logger.info(f'即将生成说说配图：{image_prompt}')
+            else:
+                logger.error('生成说说配图prompt失败')
+            ai_success = await generate_image(
+                provider=image_provider,
+                image_model=image_model,
+                api_key=api_key,
+                image_prompt=image_prompt,
                 image_dir=image_directory,
                 batch_size=image_number
             )
@@ -275,15 +382,16 @@ async def send_feed(message: str, image_directory: str, enable_image: bool, imag
                 logger.error("AI图片生成失败")
                 return False
         else:
-            logger.error("未配置SiliconFlow API Key，无法生成AI图片")
+            logger.error("未配置API Key，无法生成AI图片")
             return False
     else:
         # 使用表情包
-        image = await emoji_api.get_by_description(message)
-        if image:
-            image_base64, description, scene = image
-            image_data = base64.b64decode(image_base64)
-            images.append(image_data)
+        for _ in range(image_number):
+            image = await emoji_api.get_by_description(message)
+            if image:
+                image_base64, description, scene = image
+                image_data = base64.b64decode(image_base64)
+                images.append(image_data)
 
     try:
         tid = await qzone.publish_emotion(message, images)

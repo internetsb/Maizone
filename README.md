@@ -8,7 +8,7 @@
 <u>制作者水平稀烂，任何疑问或bug或建议请联系qq：1523640161</u>
 
 ## 概述
-Maizone（麦麦空间）插件v2.3.2，让你的麦麦发说说，读QQ空间，点赞评论！
+Maizone（麦麦空间）插件v2.4.0，适配0.10.3，让你的麦麦发说说，读QQ空间，点赞评论！
 
 ## 功能
 - **发说说**: 当用户说"说说"、"qq空间"、"动态"时麦麦会决定是否发说说和说说的主题
@@ -28,13 +28,13 @@ Maizone（麦麦空间）插件v2.3.2，让你的麦麦发说说，读QQ空间�
 
 1. 下载或克隆本仓库（麦麦旧版本可在release中下载适配旧版的插件）
 
-   ```
+   ```bash
    git clone https://github.com/internetsb/Maizone.git
    ```
 
 2. 将`Maizone\`文件夹放入`MaiBot\plugins`文件夹下
 
-3. 安装相应依赖，示例：
+3. 安装相应依赖(部分依赖MaiBot已安装)，示例：
 
    ```bash
    #pip安装，在MaiBot文件夹下
@@ -43,7 +43,7 @@ Maizone（麦麦空间）插件v2.3.2，让你的麦麦发说说，读QQ空间�
    pip install -i https://mirrors.aliyun.com/pypi/simple -r .\requirements.txt --upgrade
    #uv安装，在plugins\Maizone文件夹下
    uv pip install -r .\requirements.txt -i https://mirrors.aliyun.com/pypi/simple --upgrade
-   #一键包用户可在启动时选择交互式安装pip模块，逐行安装MaiBot\plugins\Maizone\requirements.txt中的依赖
+   #一键包用户可在启动时选择交互式安装pip模块，安装bs4和json5
    #docker安装，宿主机内
    docker exec -it maim-bot-core uv pip install bs4 json5 --system
    ```
@@ -85,21 +85,41 @@ Maizone（麦麦空间）插件v2.3.2，让你的麦麦发说说，读QQ空间�
 > ![](images/done_docker_log.png)
 
 ### 修改配置文件
+
 请设置：
+
 1. 是否启用插件及各种功能
 2. 是否启用说说配图和ai生成配图（及相应的api_key）
 3. 权限名单及类型
 
 更多配置请看config.toml中的注释
 
+### （可选）AI生图
+
+1. 注册登录ModelScope或SiliconFlow，获取访问令牌/APIkey
+
+2. 从模型库中选择文生图（若开启参考图则选择图生图）标签的模型，复制名称
+
+3. 填写至config.toml的models栏
+
+4. （可选）若有bot的人设图或者头像之类的，保存图片并命名为"done_ref.xxx"（xxx可为jpg,png等等）放入插件的images目录下，修改config.toml的image_ref为true，即可尝试让ai参考该图来生成图片（需要图生图模型）
+
+   **个人推荐：**
+
+   ModelScope的Qwen/Qwen-Image-Edit，我只测试了这个，若遇到不能使用的模型请联系我
+
+   SiliconFlow只推荐Kwai-Kolors/Kolors，个人感觉效果不如Qwen，但硅基流动的Qwen三毛一张图
+
+   若不在意价格，你也可以更换供应商，自行修改utils.py中的generate_image函数，将生成的图片保存至image_dir即可
+
 ### 快速开始
-在config.toml中分别填写上send和read模块中的权限名单和类型
+**配置权限**：在config.toml中分别填写上send和read模块中的权限名单和类型
 
 **发说说**：向麦麦发送命令：`/send_feed` 或说 “发条说说吧”/“发一条你今天心情的说说” 正常情况下，等待几秒后麦麦将发送一条相应主题的说说至QQ空间
 
 **读说说**：对麦麦说：“读一下我的QQ空间”/“评价一下@xxx的空间”，麦麦将会对其近几条评论进行点赞评论
 
-**自动看说说**：在config.toml中monitor开启，麦麦会自动阅读新说说并点赞、评论（不读自己的）
+**自动看说说**：在config.toml中monitor开启，麦麦会自动阅读新说说并点赞、评论（并回复自己说说下的评论）
 
 **定时发说说**：在config.toml中schedule开启，麦麦会定时发送说说
 
@@ -113,9 +133,9 @@ Maizone（麦麦空间）插件v2.3.2，让你的麦麦发说说，读QQ空间�
 
   **A：'.'导致被错误地识别为了包，请重命名文件夹为Maizone**
 
-- **Q：所有功能都失败**
+- **Q：所有功能都失败爆红**
 
-  **A：请检查MaiBot/config/bot_config.toml中qq_account是否填写正确**
+  **A：请检查是否生成cookie，cookie名称与内容中的qq号是否正确，MaiBot/config/bot_config.toml中qq_account是否填写正确**
 
 - **Q：No module named 'bs4'**
 
