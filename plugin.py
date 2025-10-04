@@ -14,7 +14,7 @@ class MaizonePlugin(BasePlugin):
     """Maizone插件 - 让麦麦发QQ空间"""
     plugin_name = "MaizonePlugin"
     plugin_description = "让麦麦实现QQ空间点赞、评论、发说说"
-    plugin_version = "2.4.0"
+    plugin_version = "2.4.1"
     plugin_author = "internetsb"
     enable_plugin = True
     config_file_name = "config.toml"
@@ -43,7 +43,7 @@ class MaizonePlugin(BasePlugin):
                                           description="图片生成服务提供商（ModelScope或SiliconFlow）"),
             "image_model": ConfigField(type=str, default="Qwen/Qwen-Image-Edit",
                                        description="图片生成模型（从对应服务商官网获取），如SiliconFlow的Kwai-Kolors/Kolors"),
-            "image_ref": ConfigField(type=bool, default="False", description="是否启用人设参考图（请重命名为done_ref，后缀不变，放入images文件夹）"),
+            "image_ref": ConfigField(type=bool, default=False, description="是否启用人设参考图（请重命名为done_ref，后缀不变，放入images文件夹）"),
             "api_key": ConfigField(type=str, default="", description="相应提供商的API密钥（用于生成说说配图）"),
             "show_prompt": ConfigField(type=bool, default=False, description="是否显示生成prompt内容"),
         },

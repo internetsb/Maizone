@@ -71,7 +71,7 @@ async def generate_image(provider: str, image_model: str, api_key: str, image_pr
 
             # 查找参考图片
             ref_images = list(Path(image_dir).glob("done_ref.*"))
-            if ref_images and config_api.get_plugin_config(plugin_config, "models.image_ref", "False"):
+            if ref_images and config_api.get_plugin_config(plugin_config, "models.image_ref", False):
                 image = Image.open(ref_images[0])
                 data["image"] = encode_file(image)
 
@@ -125,7 +125,7 @@ async def generate_image(provider: str, image_model: str, api_key: str, image_pr
 
             # 查找参考图片
             ref_images = list(Path(image_dir).glob("done_ref.*"))
-            if ref_images and config_api.get_plugin_config(plugin_config, "models.image_ref", "False"):
+            if ref_images and config_api.get_plugin_config(plugin_config, "models.image_ref", False):
                 image = Image.open(ref_images[0])
                 data_["image"] = encode_file(image)
 
@@ -329,7 +329,7 @@ async def send_feed(message: str,
             image_provider = config_api.get_plugin_config(plugin_config, "models.image_provider", "SiliconFlow")
             image_model = config_api.get_plugin_config(plugin_config, "models.image_model",
                                                        "Kwai-Kolors/Kolors")  # 获取图片模型配置
-            enable_ref = config_api.get_plugin_config(plugin_config, "models.image_ref", "False")  # 启用参考图
+            enable_ref = config_api.get_plugin_config(plugin_config, "models.image_ref", False)  # 启用参考图
             logger.info(f"正在生成图片提示词...")
             # 生成图片提示词
             prompt = f"""
