@@ -427,12 +427,9 @@ async def read_feed(target_qq: str, num: int) -> list[dict]:
         return []
 
 
-async def monitor_read_feed(num: int) -> list[dict]:
+async def monitor_read_feed() -> list[dict]:
     """
     通过调用QZone API的`monitor_get_list`方法定时阅读说说，返回说说列表。
-
-    Args:
-        num (int): 要获取的说说数量。
 
     Returns:
         list: 包含说说信息的列表。
@@ -443,7 +440,7 @@ async def monitor_read_feed(num: int) -> list[dict]:
     qzone = create_qzone_api()
 
     try:
-        feeds_list = await qzone.monitor_get_list(num)
+        feeds_list = await qzone.monitor_get_list()
         logger.debug(f"获取到的说说列表: {format_feed_list(feeds_list)}")
         return feeds_list
     except Exception as e:

@@ -88,7 +88,7 @@ class FeedMonitor:
                 # 等待指定时间
                 await asyncio.sleep(interval * 60)
                 # 执行监控任务
-                await self.check_feeds(read_num, processed_list)
+                await self.check_feeds(processed_list)
                 # 保存已处理评论到文件
                 _save_processed_list(processed_list)
             except asyncio.CancelledError:
@@ -101,7 +101,7 @@ class FeedMonitor:
                 # 出错后等待一段时间再重试
                 await asyncio.sleep(300)
 
-    async def check_feeds(self, read_num: int, processed_comments: Dict[str, List[str]]):
+    async def check_feeds(self, processed_comments: Dict[str, List[str]]):
         """检查空间说说并回复未读说说和评论"""
 
         qq_account = config_api.get_global_config("bot.qq_account", "")
@@ -128,7 +128,7 @@ class FeedMonitor:
 
         try:
             logger.info(f"监控任务: 正在获取说说列表")
-            feeds_list = await monitor_read_feed(read_num)
+            feeds_list = await monitor_read_feed()
         except Exception as e:
             logger.error(f"获取说说列表失败: {str(e)}")
             return False, "获取说说列表失败"
@@ -161,7 +161,7 @@ class FeedMonitor:
                                 if comment['comment_tid'] not in processed_comments.get(fid, []):  # 只考虑未处理过的评论
                                     list_to_reply.append(comment)  # 添加到待回复列表
                                     processed_comments.setdefault(fid, []).append(comment['comment_tid'])  # 记录到已处理评论
-                                    while len(processed_comments) > read_num * 3:
+                                    while len(processed_comments) > 100:
                                         # 为防止字典无限增长，限制字典大小
                                         oldest_fid = next(iter(processed_comments))
                                         processed_comments.pop(oldest_fid)
@@ -259,7 +259,7 @@ class FeedMonitor:
                 logger.info(f'点赞说说{content[:10]}..成功')
                 # 记录该说说已处理
                 processed_comments[fid] = []
-                while len(processed_comments) > read_num * 3:
+                while len(processed_comments) > 100:
                     # 为防止字典无限增长，限制字典大小
                     oldest_fid = next(iter(processed_comments))
                     processed_comments.pop(oldest_fid)

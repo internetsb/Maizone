@@ -575,12 +575,9 @@ class QzoneAPI:
             logger.error(str(json_data))
             return [{"error": f'{e},你没有看到任何东西'}]
 
-    async def monitor_get_list(self, num: int) -> list[dict[str, Any]]:
+    async def monitor_get_list(self) -> list[dict[str, Any]]:
         """
         获取自己的好友说说列表，返回已读与未读的说说列表。
-
-        Args:
-            num (int): 要获取的说说数量。
 
         Returns:
             list[dict[str, Any]]: 包含说说信息的字典列表，每条字典包含目标QQ号（target_qq）、说说ID(tid)、内容(content)、图片描述(images)、视频url(videos)、转发内容(rt_con)及评论内容(comments)。
@@ -600,7 +597,6 @@ class QzoneAPI:
                 "flag": 1,  # 标记
                 "applist": "all",  # 所有应用
                 "pagenum": 1,  # 页码
-                "count": num,  # 每页条数
                 "aisortEndTime": 0,  # AI排序结束时间
                 "aisortOffset": 0,  # AI排序偏移
                 "aisortBeginTime": 0,  # AI排序开始时间
