@@ -20,6 +20,7 @@ async def reply_send(chat_stream, extra_info: str)-> bool:
         extra_info=extra_info
     )
     if success and response:
+        await send_api.custom_reply_set_to_stream(response.reply_set, chat_stream.stream_id)
         return True
     return False
 
@@ -29,14 +30,14 @@ class SendFeedAction(BaseAction):
     """发说说Action - 只在用户要求发说说时激活"""
 
     action_name = "send_feed"
-    action_description = "发一条相应主题的说说，并根据发送内容回复"
+    action_description = "发一条相应主题的说说"
 
     focus_activation_type = ActionActivationType.KEYWORD
     normal_activation_type = ActionActivationType.KEYWORD
 
     activation_keywords = ["说说", "空间", "动态"]
     keyword_case_sensitive = False
-    parallel_action = False
+
     action_parameters = {
         "topic": "要发送的说说主题或完整内容",
         "user_name": "要求你发说说的好友的qq名称",
@@ -46,7 +47,7 @@ class SendFeedAction(BaseAction):
         "当有人希望你更新qq空间时使用",
         "当你认为适合发说说时使用",
     ]
-    associated_types = ["text"]
+    associated_types = ["text", "emoji"]
 
     def check_permission(self, qq_account: str) -> bool:
         """检查qq号为qq_account的用户是否拥有权限"""
@@ -180,14 +181,14 @@ class ReadFeedAction(BaseAction):
     """读说说Action - 只在用户要求读说说时激活"""
 
     action_name = "read_feed"
-    action_description = "读取好友最近的动态/说说/qq空间并评论点赞，然后根据阅读内容回复"
+    action_description = "读取好友最近的动态/说说/qq空间并评论点赞"
 
     focus_activation_type = ActionActivationType.KEYWORD
     normal_activation_type = ActionActivationType.KEYWORD
 
     activation_keywords = ["说说", "空间", "动态"]
     keyword_case_sensitive = False
-    parallel_action = False
+
     action_parameters = {
         "target_name": "需要阅读动态的好友的qq名称",
         "user_name": "要求你阅读动态的好友的qq名称"
@@ -359,5 +360,5 @@ class ReadFeedAction(BaseAction):
         )
         if not await reply_send(self.chat_stream, f'你刚刚成功读了以下说说：{feeds_list}'):
             return False, "生成回复失败"
-        return False, 'success'
+        return True, 'success'
 
