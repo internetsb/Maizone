@@ -567,20 +567,20 @@ class QzoneAPI:
                                     sub_time = sub_comment.get("createTime", "") or comment.get("createTime2", "")
                                     sub_parent = comment_tid
                                     comments.append({"content": sub_content,
-                                                     "qq_account": sub_uin,
+                                                     "qq_account": str(sub_uin),
                                                      "nickname": sub_nickname,
-                                                     "comment_tid": sub_tid,
+                                                     "comment_tid": int(sub_tid),
                                                      "created_time": sub_time,
-                                                     "parent_tid": sub_parent})
+                                                     "parent_tid": int(sub_parent)})
                             comments.append({"content": comment_content,
-                                             "qq_account": comment_uin,
+                                             "qq_account": str(comment_uin),
                                              "nickname": comment_nickname,
-                                             "comment_tid": comment_tid,
+                                             "comment_tid": int(comment_tid),
                                              "created_time": comment_time,
                                              "parent_tid": None})
                     # 存储信息
-                    feeds_list.append({"target_qq": target_qq,
-                                       "tid": tid,
+                    feeds_list.append({"target_qq": str(target_qq),
+                                       "tid": int(tid),
                                        "created_time": created_time,
                                        "content": content,
                                        "images": images,
@@ -751,16 +751,16 @@ class QzoneAPI:
                                 parent_tid = parent_li.get('data-tid')
 
                         comments_list.append({
-                            'qq_account': qq_account,
+                            'qq_account': str(qq_account),
                             'nickname': nickname,
-                            'comment_tid': comment_tid,
+                            'comment_tid': int(comment_tid),
                             'content': content,
-                            'parent_tid': parent_tid
+                            'parent_tid': parent_tid if parent_tid is None else int(parent_tid)
                         })
 
                 feeds_list.append({
-                    'target_qq': target_qq,
-                    'tid': tid,
+                    'target_qq': str(target_qq),
+                    'tid': int(tid),
                     'content': text,
                     'images': images,
                     'videos': videos,
