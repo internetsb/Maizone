@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Tuple
 
 from src.plugin_system import BaseAction, ActionActivationType
-from src.plugin_system.apis import llm_api, config_api, person_api, generator_api, send_api
+from src.plugin_system.apis import llm_api, config_api, person_api, generator_api
 from src.common.logger import get_logger
 
 from .qzone_api import create_qzone_api
@@ -12,32 +12,35 @@ from .cookie_manager import renew_cookies
 from .utils import send_feed, read_feed, comment_feed, like_feed
 from .scheduled_tasks import _save_processed_list, _load_processed_list
 
-async def reply_send(chat_stream, extra_info: str)-> bool:
+
+async def reply_send(action: BaseAction, chat_stream, extra_info: str) -> bool:
     """生成回复并发送"""
     success, response = await generator_api.generate_reply(
         chat_stream=chat_stream,
         chat_id=chat_stream.stream_id,
         extra_info=extra_info
     )
-    if success and response:
-        await send_api.custom_reply_set_to_stream(response.reply_set, chat_stream.stream_id)
-        return True
-    return False
+    for reply in response.reply_set.reply_data:
+        reply_content = reply.content
+        await action.send_text(content=reply_content, typing=True)
+    return True
+
 
 logger = get_logger('Maizone.actions')
+
+
 # ===== 插件Action组件 =====
 class SendFeedAction(BaseAction):
     """发说说Action - 只在用户要求发说说时激活"""
 
     action_name = "send_feed"
-    action_description = "发一条相应主题的说说"
+    action_description = "发一条相应主题的说说，自带reply动作，无需第二动作回复"
 
     focus_activation_type = ActionActivationType.KEYWORD
     normal_activation_type = ActionActivationType.KEYWORD
 
     activation_keywords = ["说说", "空间", "动态"]
     keyword_case_sensitive = False
-
     action_parameters = {
         "topic": "要发送的说说主题或完整内容",
         "user_name": "要求你发说说的好友的qq名称",
@@ -47,7 +50,7 @@ class SendFeedAction(BaseAction):
         "当有人希望你更新qq空间时使用",
         "当你认为适合发说说时使用",
     ]
-    associated_types = ["text", "emoji"]
+    associated_types = ["text"]
 
     def check_permission(self, qq_account: str) -> bool:
         """检查qq号为qq_account的用户是否拥有权限"""
@@ -68,9 +71,9 @@ class SendFeedAction(BaseAction):
         person_id = person_api.get_person_id_by_name(user_name)
         show_prompt = self.get_config("models.show_prompt", False)
         user_id = await person_api.get_person_value(person_id, "user_id")
-        if not user_id or user_id == "unknown":# 若用户未知，拒绝执行
+        if not user_id or user_id == "unknown":  # 若用户未知，拒绝执行
             logger.error(f"未找到用户 {user_name} 的user_id")
-            if not await reply_send(self.chat_stream, f'你不认识{user_name}，请用符合你人格特点的方式拒绝请求'):
+            if not await reply_send(self, self.chat_stream, f'你不认识{user_name}，请用符合你人格特点的方式拒绝请求'):
                 return False, "生成回复失败"
             await self.store_action_info(
                 action_build_into_prompt=True,
@@ -81,7 +84,7 @@ class SendFeedAction(BaseAction):
 
         if not self.check_permission(user_id):  # 若权限不足，拒绝执行
             logger.info(f"{user_id}无{self.action_name}权限")
-            if not await reply_send(self.chat_stream, f'{user_name}无权命令你发说说，请用符合人格的方式进行拒绝的回复'):
+            if not await reply_send(self, self.chat_stream, f'{user_name}无权命令你发说说，请用符合人格的方式进行拒绝的回复'):
                 return False, "生成回复失败"
             await self.store_action_info(
                 action_build_into_prompt=True,
@@ -172,7 +175,7 @@ class SendFeedAction(BaseAction):
             action_done=True,
         )
         # 生成回复
-        if not await reply_send(self.chat_stream, f'你刚刚发了一条说说，内容为{story}，请生成一句话的回复'):
+        if not await reply_send(self, self.chat_stream, f'你刚刚发了一条说说，内容为{story}，请生成一句话的回复'):
             return False, "生成回复失败"
         return True, 'success'
 
@@ -181,14 +184,13 @@ class ReadFeedAction(BaseAction):
     """读说说Action - 只在用户要求读说说时激活"""
 
     action_name = "read_feed"
-    action_description = "读取好友最近的动态/说说/qq空间并评论点赞"
+    action_description = "读取好友最近的动态/说说/qq空间并评论点赞，自带reply动作，无需第二动作回复"
 
     focus_activation_type = ActionActivationType.KEYWORD
     normal_activation_type = ActionActivationType.KEYWORD
 
     activation_keywords = ["说说", "空间", "动态"]
     keyword_case_sensitive = False
-
     action_parameters = {
         "target_name": "需要阅读动态的好友的qq名称",
         "user_name": "要求你阅读动态的好友的qq名称"
@@ -222,7 +224,7 @@ class ReadFeedAction(BaseAction):
         user_id = await person_api.get_person_value(person_id, "user_id")
         if not user_id or user_id == "unknown":
             logger.error(f"未找到用户 {user_name} 的user_id")
-            if not await reply_send(self.chat_stream, f'你不认识{user_name}，请用符合你人格特点的方式拒绝请求'):
+            if not await reply_send(self, self.chat_stream, f'你不认识{user_name}，请用符合你人格特点的方式拒绝请求'):
                 return False, "生成回复失败"
             await self.store_action_info(
                 action_build_into_prompt=True,
@@ -232,7 +234,7 @@ class ReadFeedAction(BaseAction):
             return False, "未找到用户的user_id"
         if not self.check_permission(user_id):  # 若权限不足
             logger.info(f"{user_id}无{self.action_name}权限")
-            if not await reply_send(self.chat_stream, f'{user_name}无权命令你读说说，请用符合人格的方式进行拒绝的回复'):
+            if not await reply_send(self, self.chat_stream, f'{user_name}无权命令你读说说，请用符合人格的方式进行拒绝的回复'):
                 return False, "生成回复失败"
             await self.store_action_info(
                 action_build_into_prompt=True,
@@ -289,7 +291,8 @@ class ReadFeedAction(BaseAction):
                 action_prompt_display=f"执行阅读说说动作失败：未能读取到说说，错误原因：{feeds_list[0].get('error')}",
                 action_done=False,
             )
-            if not await reply_send(self.chat_stream, f"执行阅读说说动作失败：未能读取到说说，原因：{feeds_list[0].get('error')}"):
+            if not await reply_send(self, self.chat_stream,
+                                    f"执行阅读说说动作失败：未能读取到说说，原因：{feeds_list[0].get('error')}"):
                 return False, "生成回复失败"
             return False, feeds_list[0].get('error')
         #逐条点赞回复
@@ -353,12 +356,11 @@ class ReadFeedAction(BaseAction):
                 logger.info(f"点赞说说'{content[:10]}..'成功")
             processed_list[fid] = []
         _save_processed_list(processed_list)
+        if not await reply_send(self, self.chat_stream, f'你刚刚成功读了以下说说：{feeds_list}'):
+            return False, "生成回复失败"
         await self.store_action_info(
             action_build_into_prompt=True,
             action_prompt_display=f"执行阅读说说动作完成，你刚刚成功读了以下说说：{feeds_list}",
             action_done=True,
         )
-        if not await reply_send(self.chat_stream, f'你刚刚成功读了以下说说：{feeds_list}'):
-            return False, "生成回复失败"
-        return True, 'success'
-
+        return False, 'success'

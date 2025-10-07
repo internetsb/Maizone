@@ -553,14 +553,34 @@ class QzoneAPI:
                     if 'commentlist' in msg:
                         commentlist = msg.get("commentlist")
                         for comment in commentlist:
+                            comment_nickname = comment.get("name", "")
                             comment_content = comment.get("content", "")
                             comment_uin = comment.get("uin", "")
+                            comment_tid = comment.get("tid", "")
                             comment_time = comment.get("createTime", "") or comment.get("createTime2", "")
+                            if 'list_3' in comment:  # 子评论列表
+                                for sub_comment in comment.get("list_3", ""):
+                                    sub_content = sub_comment.get("content", "")
+                                    sub_nickname = sub_comment.get("name", "")
+                                    sub_uin = sub_comment.get("uin", "")
+                                    sub_tid = sub_comment.get("tid", "")
+                                    sub_time = sub_comment.get("createTime", "") or comment.get("createTime2", "")
+                                    sub_parent = comment_tid
+                                    comments.append({"content": sub_content,
+                                                     "qq_account": sub_uin,
+                                                     "nickname": sub_nickname,
+                                                     "comment_tid": sub_tid,
+                                                     "created_time": sub_time,
+                                                     "parent_tid": sub_parent})
                             comments.append({"content": comment_content,
-                                             "uin": comment_uin,
-                                             "created_time": comment_time})
+                                             "qq_account": comment_uin,
+                                             "nickname": comment_nickname,
+                                             "comment_tid": comment_tid,
+                                             "created_time": comment_time,
+                                             "parent_tid": None})
                     # 存储信息
-                    feeds_list.append({"tid": tid,
+                    feeds_list.append({"target_qq": target_qq,
+                                       "tid": tid,
                                        "created_time": created_time,
                                        "content": content,
                                        "images": images,
@@ -575,10 +595,11 @@ class QzoneAPI:
             logger.error(str(json_data))
             return [{"error": f'{e},你没有看到任何东西'}]
 
-    async def monitor_get_list(self) -> list[dict[str, Any]]:
+    async def monitor_get_list(self, self_readnum: int) -> list[dict[str, Any]]:
         """
         获取自己的好友说说列表，返回已读与未读的说说列表。
-
+        Args:
+            self_readnum: 需要获取完整评论的自己的最新说说数量
         Returns:
             list[dict[str, Any]]: 包含说说信息的字典列表，每条字典包含目标QQ号（target_qq）、说说ID(tid)、内容(content)、图片描述(images)、视频url(videos)、转发内容(rt_con)及评论内容(comments)。
 
@@ -747,7 +768,11 @@ class QzoneAPI:
                     'comments': comments_list,
                 })
 
-            logger.info(f"成功解析 {len(feeds_list)} 条说说，其中自己的说说有 {num_self} 条")
+            logger.info(f"成功解析 {len(feeds_list)} 条最新说说，其中自己的说说有 {num_self} 条")
+            # 获取自己说说下的完整评论内容
+            feeds_list = [item for item in feeds_list if item.get('target_qq') != str(self.uin)]  # 去除自己的说说
+            self_feeds = await self.get_list(str(self.uin), self_readnum)
+            feeds_list.extend(self_feeds)
             return feeds_list
         except Exception as e:
             logger.error(f'解析说说错误：{str(e)}', exc_info=True)

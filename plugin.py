@@ -14,7 +14,7 @@ class MaizonePlugin(BasePlugin):
     """Maizone插件 - 让麦麦发QQ空间"""
     plugin_name = "MaizonePlugin"
     plugin_description = "让麦麦实现QQ空间点赞、评论、发说说"
-    plugin_version = "2.4.2"
+    plugin_version = "2.4.4"
     plugin_author = "internetsb"
     enable_plugin = True
     config_file_name = "config.toml"
@@ -77,6 +77,8 @@ class MaizonePlugin(BasePlugin):
                                                description="是否启用刷空间（自动阅读所有好友说说）"),
             "enable_auto_reply": ConfigField(type=bool, default=False,
                                              description="是否启用自动回复自己说说的评论（当enable_auto_monitor为True）"),
+            "self_readnum": ConfigField(type=int, default=5,
+                                        description="需要回复评论的自己最新说说数量"),
             "interval_minutes": ConfigField(type=int, default=15, description="阅读间隔(分钟)"),
         },
         "schedule": {

@@ -109,6 +109,7 @@ class FeedMonitor:
         napcat_token = self.plugin.get_config("plugin.napcat_token", "")
         host = self.plugin.get_config("plugin.http_host", "")
         show_prompt = self.plugin.get_config("models.show_prompt", False)
+        self_readnum = self.plugin.get_config("monitor.self_readnum", 5)
         #模型配置
         models = llm_api.get_available_models()
         text_model = self.plugin.get_config("models.text_model", "replyer")
@@ -118,7 +119,6 @@ class FeedMonitor:
 
         bot_personality = config_api.get_global_config("personality.personality", "一个机器人")
         bot_expression = config_api.get_global_config("personality.reply_style", "内容积极向上")
-
         # 更新cookies
         try:
             await renew_cookies(host, port, napcat_token)
@@ -128,7 +128,7 @@ class FeedMonitor:
 
         try:
             logger.info(f"监控任务: 正在获取说说列表")
-            feeds_list = await monitor_read_feed()
+            feeds_list = await monitor_read_feed(self_readnum)
         except Exception as e:
             logger.error(f"获取说说列表失败: {str(e)}")
             return False, "获取说说列表失败"

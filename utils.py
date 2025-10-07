@@ -339,7 +339,7 @@ async def send_feed(message: str,
                 请注意：仅回复用于生成图片的prompt，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )
                 """
             if enable_ref:
-                prompt += "说说主人的人设参考图片将随同提示词一起发送给生图AI，可使用'in the style of'或'基于此图'等描述引导生成风格"
+                prompt += "说说主人的人设参考图片将随同提示词一起发送给生图AI，可使用'in the style of'或'根据图中人物'等描述引导生成风格"
             success, image_prompt, reasoning, model_name = await llm_api.generate_with_model(
                 prompt=prompt,
                 model_config=model_config,
@@ -427,10 +427,11 @@ async def read_feed(target_qq: str, num: int) -> list[dict]:
         return []
 
 
-async def monitor_read_feed() -> list[dict]:
+async def monitor_read_feed(self_readnum) -> list[dict]:
     """
     通过调用QZone API的`monitor_get_list`方法定时阅读说说，返回说说列表。
-
+    Args:
+        self_readnum: 需要监控的自己的最新说说数量
     Returns:
         list: 包含说说信息的列表。
 
@@ -440,7 +441,7 @@ async def monitor_read_feed() -> list[dict]:
     qzone = create_qzone_api()
 
     try:
-        feeds_list = await qzone.monitor_get_list()
+        feeds_list = await qzone.monitor_get_list(self_readnum)
         logger.debug(f"获取到的说说列表: {format_feed_list(feeds_list)}")
         return feeds_list
     except Exception as e:
