@@ -145,10 +145,12 @@ Maizone（麦麦空间）插件v2.4.5，适配0.10.3，让你的麦麦发说说�
 
   **A：请查看MaiBot/config/model_config.toml，默认使用**
 
-  `[model_task_config.replyer] # 首要回复模型，还用于表达器和表达方式学习
+  ```
+  [model_task_config.replyer] # 首要回复模型，还用于表达器和表达方式学习
   model_list = ["xxxxxx"]
   temperature = xxx
-  max_tokens = xxx`
+  max_tokens = xxx
+  ```
 
   **可更换为配置的utils、utils_small、tool_use等模型**
 
