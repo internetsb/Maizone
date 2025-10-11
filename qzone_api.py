@@ -580,7 +580,7 @@ class QzoneAPI:
                                              "parent_tid": None})
                     # 存储信息
                     feeds_list.append({"target_qq": str(target_qq),
-                                       "tid": int(tid),
+                                       "tid": str(tid),
                                        "created_time": created_time,
                                        "content": content,
                                        "images": images,
@@ -760,7 +760,7 @@ class QzoneAPI:
 
                 feeds_list.append({
                     'target_qq': str(target_qq),
-                    'tid': int(tid),
+                    'tid': str(tid),
                     'content': text,
                     'images': images,
                     'videos': videos,
