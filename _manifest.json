@@ -10,8 +10,7 @@
   "license": "MIT",
   
   "host_application": {
-    "min_version": "0.10.3",
-    "max_version": "0.10.3"
+    "min_version": "0.10.3"
   },
   "homepage_url": "https://github.com/internetsb/Maizone",
   "repository_url": "https://github.com/internetsb/Maizone",
@@ -39,5 +38,6 @@
     ]
   }
 }
+
 
 
