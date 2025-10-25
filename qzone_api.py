@@ -493,7 +493,10 @@ class QzoneAPI:
                 return [{"error": json_data.get('message')}]
             # 3. 提取说说内容
             feeds_list = []
-            for msg in json_data.get("msglist", []):
+            msglist = json_data.get("msglist") or []
+            if not msglist:
+                logger.warning("msglist为空或None，返回空的说说列表")
+            for msg in msglist:
                 # 已评论过的说说不再阅读
                 is_comment = False
                 if 'commentlist' in msg:
