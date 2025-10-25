@@ -523,24 +523,26 @@ class QzoneAPI:
                     logger.info(f"正在阅读说说内容: {content[:20]}...")
                     # 提取图片信息
                     images = []
+                    image_manager = get_image_manager()
+
+                    async def append_image_description(url: str):
+                        if not url:
+                            return
+                        try:
+                            image_base64 = await self.get_image_base64_by_url(url)
+                            image_description = await image_manager.get_image_description(image_base64)
+                            images.append(image_description)
+                        except Exception as img_err:
+                            logger.warning(f"获取图片描述失败: {img_err}")
+
                     for pic in (msg.get("pic") or []):
                         url = pic.get("url1") or pic.get("pic_id") or pic.get("smallurl")
-                        if not url:
-                            continue
-                        image_base64 = await self.get_image_base64_by_url(url)
-                        image_manager = get_image_manager()
-                        image_description = await image_manager.get_image_description(image_base64)
-                        images.append(image_description)
+                        await append_image_description(url)
 
                     # 读取视频封面（按图片处理）
                     for video in (msg.get("video") or []):
                         video_image_url = video.get("url1") or video.get("pic_url")
-                        if not video_image_url:
-                            continue
-                        image_base64 = await self.get_image_base64_by_url(video_image_url)
-                        image_manager = get_image_manager()
-                        image_description = await image_manager.get_image_description(image_base64)
-                        images.append(image_description)
+                        await append_image_description(video_image_url)
 
                     # 提取视频播放地址
                     videos = []
@@ -556,29 +558,35 @@ class QzoneAPI:
                         rt_con = rt_data.get("content", "")
 
                     # 提取评论
+                    def _safe_int(value):
+                        try:
+                            return int(value)
+                        except (TypeError, ValueError):
+                            return None
+
                     comments = []
                     for comment in (msg.get("commentlist") or []):
                         comment_nickname = comment.get("name", "")
                         comment_content = comment.get("content", "")
                         comment_uin = comment.get("uin", "")
-                        comment_tid = comment.get("tid", "")
+                        comment_tid_value = _safe_int(comment.get("tid"))
                         comment_time = comment.get("createTime", "") or comment.get("createTime2", "")
 
                         for sub_comment in (comment.get("list_3") or []):
                             sub_content = sub_comment.get("content", "")
                             sub_nickname = sub_comment.get("name", "")
                             sub_uin = sub_comment.get("uin", "")
-                            sub_tid = sub_comment.get("tid", "")
+                            sub_tid_value = _safe_int(sub_comment.get("tid"))
                             sub_time = sub_comment.get("createTime", "") or comment.get("createTime2", "")
-                            sub_parent = comment_tid
+                            sub_parent = comment_tid_value
                             comments.append(
                                 {
                                     "content": sub_content,
                                     "qq_account": str(sub_uin),
                                     "nickname": sub_nickname,
-                                    "comment_tid": int(sub_tid),
+                                    "comment_tid": sub_tid_value,
                                     "created_time": sub_time,
-                                    "parent_tid": int(sub_parent),
+                                    "parent_tid": sub_parent,
                                 }
                             )
 
@@ -587,7 +595,7 @@ class QzoneAPI:
                                 "content": comment_content,
                                 "qq_account": str(comment_uin),
                                 "nickname": comment_nickname,
-                                "comment_tid": int(comment_tid),
+                                "comment_tid": comment_tid_value,
                                 "created_time": comment_time,
                                 "parent_tid": None,
                             }
