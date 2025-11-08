@@ -153,7 +153,7 @@ class SendFeedAction(BaseAction):
             model_config=model_config,
             request_type="story.generate",
             temperature=0.3,
-            max_tokens=1000
+            max_tokens=4096
         )
 
         if not success:
@@ -379,3 +379,4 @@ class ReadFeedAction(BaseAction):
             action_done=True,
         )
         return False, 'success'
+
