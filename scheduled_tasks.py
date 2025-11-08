@@ -80,7 +80,6 @@ class FeedMonitor:
         """监控循环"""
         # 获取配置
         interval = self.plugin.get_config("monitor.interval_minutes", 5)
-        read_num = self.plugin.get_config("monitor.read_num", 3)
         # 记录已处理评论，说说id映射已处理评论列表
         processed_list = _load_processed_list()
         while self.is_running:
@@ -173,13 +172,16 @@ class FeedMonitor:
                         user_id = comment['qq_account']
                         person_id = person_api.get_person_id("qq", user_id)
                         impression = await person_api.get_person_value(person_id, "memory_points", ["无"])
-                        prompt = f"""
-                        你是'{bot_personality}'，你的好友'{comment['nickname']}'评论了你QQ空间上的一条内容为“{content}”说说，
-                        你的好友对该说说的评论为:“{comment["content"]}”，你想要对此评论进行回复，
-                        你对该好友的印象是:{impression}，若与你的印象点相关，可以适当回复相关内容，无关则忽略此印象，
-                        {bot_expression}，回复的平淡一些，简短一些，说中文，
-                        不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。只输出回复内容
-                        """
+                        prompt_pre = self.plugin.get_config("monitor.reply_prompt", "")
+                        data = {
+                            "bot_personality": bot_personality,
+                            "bot_expression": bot_expression,
+                            "nickname": comment['nickname'],
+                            "content": content,
+                            "comment_content": comment['content'],
+                            "impression": impression,
+                        }
+                        prompt = prompt_pre.format(**data)
                         logger.info(f"正在回复{comment['nickname']}的评论：{comment['content']}...")
 
                         if show_prompt:
@@ -190,7 +192,7 @@ class FeedMonitor:
                             model_config=model_config,
                             request_type="story.generate",
                             temperature=0.3,
-                            max_tokens=1000
+                            max_tokens=4096
                         )
 
                         if not success:
@@ -212,22 +214,28 @@ class FeedMonitor:
                     continue
                 person_id = person_api.get_person_id("qq", target_qq)
                 impression = await person_api.get_person_value(person_id, "memory_points", ["无"])
+
                 if not rt_con:
-                    prompt = f"""
-                    你是'{bot_personality}'，你正在浏览你好友'{target_qq}'的QQ空间，
-                    你看到了你的好友'{target_qq}'qq空间上内容是'{content}'的说说，你想要发表你的一条评论，
-                    你对该好友的印象是:{impression}，若与你的印象点相关，可以适当回复相关内容，无关则忽略此印象，
-                    {bot_expression}，回复的平淡一些，简短一些，说中文，
-                    不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。只输出回复内容
-                    """
+                    prompt_pre = self.plugin.get_config("read.prompt", "")
+                    data = {
+                        "bot_personality": bot_personality,
+                        "bot_expression": bot_expression,
+                        "target_name": target_qq,
+                        "content": content,
+                        "impression": impression
+                    }
+                    prompt = prompt_pre.format(**data)
                 else:
-                    prompt = f"""
-                    你是'{bot_personality}'，你正在浏览你好友'{target_qq}'的QQ空间，
-                    你看到了你的好友'{target_qq}'在qq空间上转发了一条内容为'{rt_con}'的说说，你的好友的评论为'{content}'，
-                    你对该好友的印象是:{impression}，若与你的印象点相关，可以适当回复相关内容，无关则忽略此印象，
-                    你想要发表你的一条评论，{bot_expression}，回复的平淡一些，简短一些，说中文，
-                    不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。只输出回复内容
-                    """
+                    prompt_pre = self.plugin.get_config("read.rt_prompt", "")
+                    data = {
+                        "bot_personality": bot_personality,
+                        "bot_expression": bot_expression,
+                        "target_name": target_qq,
+                        "content": content,
+                        "rt_con": rt_con,
+                        "impression": impression
+                    }
+                    prompt = prompt_pre.format(**data)
                 logger.info(f"正在评论'{target_qq}'的说说：{content[:30]}...")
 
                 if show_prompt:
@@ -238,7 +246,7 @@ class FeedMonitor:
                     model_config=model_config,
                     request_type="story.generate",
                     temperature=0.3,
-                    max_tokens=1000
+                    max_tokens=4096
                 )
 
                 if not success:
@@ -263,6 +271,7 @@ class FeedMonitor:
                     # 为防止字典无限增长，限制字典大小
                     oldest_fid = next(iter(processed_comments))
                     processed_comments.pop(oldest_fid)
+                _save_processed_list(processed_comments)  # 每处理一条说说即保存
             return True, 'success'
         except Exception as e:
             logger.error(f"点赞评论失败: {str(e)}")
@@ -279,6 +288,7 @@ class ScheduleSender:
         self.last_send_time = 0
         self.fluctuate_table = []  # 记录波动后的发送时间表
         self.last_reset_date = None  # 记录上次重置发送时间表日期
+        self.today_send_enabled = True  # 记录今天是否允许发送说说
 
     async def start(self):
         """启动定时发送任务"""
@@ -287,6 +297,7 @@ class ScheduleSender:
         self.is_running = True
         self.last_reset_date = datetime.datetime.now().date()
         self._generate_fluctuate_table()  # 生成时间表
+        self._check_today_send_decision()  # 初始化今天的发送决策
         self.task = asyncio.create_task(self._schedule_loop())
         logger.info("定时发送说说任务已启动")
 
@@ -302,6 +313,18 @@ class ScheduleSender:
             except asyncio.CancelledError:
                 pass
         logger.info("定时发送说说任务已停止")
+
+    def _check_today_send_decision(self):
+        """每天0点决定今天是否发送说说"""
+        p = self.plugin.get_config("schedule.probability", 1.0)  # 默认概率为1.0（100%发送）
+
+        # 生成0-1之间的随机数，如果小于p则发送，否则不发送
+        if random.random() < p:
+            self.today_send_enabled = True
+            logger.info(f"今天允许发送说说 (概率: {p:.2f})")
+        else:
+            self.today_send_enabled = False
+            logger.info(f"今天不发送说说 (概率: {p:.2f})")
 
     def _generate_fluctuate_table(self):
         """生成随机波动时间表"""
@@ -357,10 +380,13 @@ class ScheduleSender:
                     logger.info("检测到日期变化，重置发送时间表")
                     self.last_reset_date = datetime.datetime.now().date()
                     self._generate_fluctuate_table()
+                    self._check_today_send_decision()  # 重新决定今天是否发送
+
                 # 获取当前时间
                 current_time = datetime.datetime.now().strftime("%H:%M")
-                # 检查是否到达发送时间
-                if current_time in self.fluctuate_table:
+
+                # 检查是否到达发送时间且今天允许发送
+                if current_time in self.fluctuate_table and self.today_send_enabled:
                     # 避免同一分钟内重复发送
                     if time.time() - self.last_send_time > 60:
                         logger.info("正在发送定时说说...")
@@ -368,6 +394,11 @@ class ScheduleSender:
                         await self.send_scheduled_feed()
                         self.fluctuate_table.remove(current_time)
                         logger.info(f"剩余发送时间点: {self.fluctuate_table}")
+                elif current_time in self.fluctuate_table and not self.today_send_enabled:
+                    # 如果到达发送时间但今天不允许发送，也移除该时间点
+                    logger.info(f"到达发送时间 {current_time}，但今天不发送说说")
+                    self.fluctuate_table.remove(current_time)
+                    logger.info(f"剩余发送时间点: {self.fluctuate_table}")
 
                 # 每分钟检查一次
                 await asyncio.sleep(60)
@@ -447,7 +478,7 @@ class ScheduleSender:
             model_config=model_config,
             request_type="story.generate",
             temperature=0.3,
-            max_tokens=1000
+            max_tokens=4096
         )
 
         # 兼容不同的返回值格式

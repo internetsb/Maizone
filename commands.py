@@ -105,7 +105,7 @@ class SendFeedCommand(BaseCommand):
             model_config=model_config,
             request_type="story.generate",
             temperature=0.3,
-            max_tokens=1000
+            max_tokens=4096
         )
 
         if not success:

@@ -313,6 +313,8 @@ class ReadFeedAction(BaseAction):
         #逐条点赞回复
         processed_list = _load_processed_list()
         for feed in feeds_list:
+            if feed["tid"] in processed_list:
+                continue
             await asyncio.sleep(3 + random.random())
             content = feed["content"]
             if feed["images"]:
@@ -323,21 +325,26 @@ class ReadFeedAction(BaseAction):
             if random.random() <= comment_possibility:
                 #评论说说
                 if not rt_con:
-                    prompt = f"""
-                    你是'{bot_personality}'，你正在浏览你好友'{target_name}'的QQ空间，
-                    你看到了你的好友'{target_name}'qq空间上内容是'{content}'的说说，你想要发表你的一条评论，
-                    你对'{target_name}'的印象是'{impression}'，若与你的印象点相关，可以适当评论相关内容，无关则忽略此印象，
-                    {bot_expression}，回复的平淡一些，简短一些，说中文，
-                    不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。只输出回复内容
-                    """
+                    prompt_pre = self.get_config("read.prompt", "")
+                    data = {
+                        "bot_personality": bot_personality,
+                        "bot_expression": bot_expression,
+                        "target_name": target_name,
+                        "content": content,
+                        "impression": impression
+                    }
+                    prompt = prompt_pre.format(**data)
                 else:
-                    prompt = f"""
-                    你是'{bot_personality}'，你正在浏览你好友'{target_name}'的QQ空间，
-                    你看到了你的好友'{target_name}'在qq空间上转发了一条内容为'{rt_con}'的说说，你的好友的评论为'{content}'，
-                    你对'{target_name}'的印象是'{impression}'，若与你的印象点相关，可以适当评论相关内容，无关则忽略此印象，
-                    你想要发表你的一条评论，{bot_expression}，回复的平淡一些，简短一些，说中文，
-                    不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。只输出回复内容
-                    """
+                    prompt_pre = self.get_config("read.rt_prompt", "")
+                    data = {
+                        "bot_personality": bot_personality,
+                        "bot_expression": bot_expression,
+                        "target_name": target_name,
+                        "content": content,
+                        "rt_con": rt_con,
+                        "impression": impression
+                    }
+                    prompt = prompt_pre.format(**data)
                 logger.info(f"正在评论'{target_name}'的说说：{content[:30]}...")
 
                 if show_prompt:
@@ -348,7 +355,7 @@ class ReadFeedAction(BaseAction):
                     model_config=model_config,
                     request_type="story.generate",
                     temperature=0.3,
-                    max_tokens=1000
+                    max_tokens=4096
                 )
 
                 if not success:
@@ -379,4 +386,3 @@ class ReadFeedAction(BaseAction):
             action_done=True,
         )
         return False, 'success'
-

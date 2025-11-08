@@ -32,7 +32,7 @@ def encode_file(img):
 
 
 async def generate_image(provider: str, image_model: str, api_key: str, image_prompt: str, image_dir: str,
-                         batch_size: int = 1) -> bool:
+                         batch_size: int = 1, image_size: str = None) -> bool:
     """
     用ModelScope或SiliconFlow API生成说说配图保存至对应路径
 
@@ -43,6 +43,7 @@ async def generate_image(provider: str, image_model: str, api_key: str, image_pr
         image_prompt (str): 说说内容，用于生成配图的描述。
         image_dir (str): 图片保存的目录路径。
         batch_size (int): 每次生成的图片数量，默认为1(Qwen不支持)。
+        image_size (str): 图片大小，部分模型支持
 
     Returns:
         bool: 如果生成成功返回True，否则返回False。
@@ -68,6 +69,8 @@ async def generate_image(provider: str, image_model: str, api_key: str, image_pr
             }
             if image_model == "Kwai-Kolors/Kolors":
                 data["batch_size"] = batch_size  # Kolors模型支持多图
+            if image_size is not None:
+                data["image_size"] = image_size
 
             # 查找参考图片
             ref_images = list(Path(image_dir).glob("done_ref.*"))
@@ -122,7 +125,8 @@ async def generate_image(provider: str, image_model: str, api_key: str, image_pr
                 "negative_prompt": "lowres, bad anatomy, bad hands, text, error, cropped, worst quality, low quality, "
                                    "normal quality, jpeg artifacts, signature, watermark, username, blurry",
             }
-
+            if image_size is not None:
+                data_["size"] = image_size
             # 查找参考图片
             ref_images = list(Path(image_dir).glob("done_ref.*"))
             if ref_images and config_api.get_plugin_config(plugin_config, "models.image_ref", False):
@@ -330,22 +334,23 @@ async def send_feed(message: str,
             image_model = config_api.get_plugin_config(plugin_config, "models.image_model",
                                                        "Kwai-Kolors/Kolors")  # 获取图片模型配置
             enable_ref = config_api.get_plugin_config(plugin_config, "models.image_ref", False)  # 启用参考图
+            image_size = config_api.get_plugin_config(plugin_config, "models.image_size", None)  # 图片尺寸
             logger.info(f"正在生成图片提示词...")
             # 生成图片提示词
-            prompt = f"""
-                请根据以下QQ空间说说内容配图，并构建生成配图的风格和prompt。
-                说说主人信息：'{personality}'。
-                说说内容:'{message}'。
-                请注意：仅回复用于生成图片的prompt，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )
-                """
+            prompt_pre = config_api.get_plugin_config(plugin_config, "models.image_prompt", "")
+            data = {
+                "personality": personality,
+                "message": message
+            }
+            prompt = prompt_pre.format(**data)
             if enable_ref:
-                prompt += "说说主人的人设参考图片将随同提示词一起发送给生图AI，可使用'in the style of'或'根据图中人物'等描述引导生成风格"
+                prompt += config_api.get_plugin_config(plugin_config, "models.image_ref_prompt", "")
             success, image_prompt, reasoning, model_name = await llm_api.generate_with_model(
                 prompt=prompt,
                 model_config=model_config,
                 request_type="story.generate",
                 temperature=0.3,
-                max_tokens=1000
+                max_tokens=4096
             )
             if success:
                 logger.info(f'即将生成说说配图：{image_prompt}')
@@ -357,7 +362,8 @@ async def send_feed(message: str,
                 api_key=api_key,
                 image_prompt=image_prompt,
                 image_dir=image_directory,
-                batch_size=image_number
+                batch_size=image_number,
+                image_size=image_size
             )
             if ai_success:
                 # 获取目录下所有文件

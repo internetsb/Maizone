@@ -3,12 +3,12 @@
 
 > [!IMPORTANT]
 >
-> 由于近期出现对公开端口的恶性攻击，为了您的安全，请设置Token。操作方法：在设置http服务器时面板最下方的Token栏中填入密码，在生成的config.toml文件中填写该密码
+> 为了您的安全，请设置Token。操作方法：在设置http服务器时面板最下方的Token栏中填入密码，在生成的config.toml文件中填写该密码
 
 <u>制作者水平稀烂，任何疑问或bug或建议请联系qq：1523640161</u>
 
 ## 概述
-Maizone（麦麦空间）插件v2.4.5，让你的麦麦发说说，读QQ空间，点赞评论！
+Maizone（麦麦空间）插件v2.4.6，让你的麦麦发说说，读QQ空间，点赞评论！
 
 ## 功能
 - **发说说**: 当用户说"说说"、"qq空间"、"动态"时麦麦会决定是否发说说和说说的主题
@@ -123,13 +123,8 @@ Maizone（麦麦空间）插件v2.4.5，让你的麦麦发说说，读QQ空间�
 
 **定时发说说**：在config.toml中schedule开启，麦麦会定时发送说说
 
-**（可选）给项目star**：（不给也可以）
-
 ## 常见问题
-- **Q：所有功能都无法正常运行**
 
-  **A：请检查是否生成cookie，cookie名称与内容中的qq号是否正确，MaiBot/config/bot_config.toml中qq_account是否填写正确**
-  
 - **Q：我发了一条说说，但bot没有回复**
 
   **A：bot无法阅读相册上传、小程序分享、过早的说说，且某些说说（比如新加的好友）需要多次才能读到，具体读取情况以日志为准**
@@ -137,6 +132,10 @@ Maizone（麦麦空间）插件v2.4.5，让你的麦麦发说说，读QQ空间�
 - **Q：No module named 'plugins.Maizone-2'**
 
   **A：'.'导致被错误地识别为了包，请重命名文件夹为Maizone**
+
+- **Q：所有功能都失败爆红**
+
+  **A：请检查是否生成cookie，cookie名称与内容中的qq号是否正确，MaiBot/config/bot_config.toml中qq_account是否填写正确**
 
 - **Q：No module named 'bs4'**
 
@@ -166,5 +165,4 @@ Maizone（麦麦空间）插件v2.4.5，让你的麦麦发说说，读QQ空间�
 感谢[xc94188](https://github.com/xc94188)、[myxxr](https://github.com/myxxr)、[UnCLAS-Prommer](https://github.com/UnCLAS-Prommer)、[XXXxx7258](https://github.com/XXXxx7258)提供的功能改进
 
 魔改版麦麦，集成了魔改版插件[MoFox_Bot](https://github.com/MoFox-Studio/MoFox_Bot)
-
 
