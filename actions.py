@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import random
 from pathlib import Path
 from typing import Tuple
@@ -121,6 +122,7 @@ class SendFeedAction(BaseAction):
         image_number = self.get_config("send.image_number", 1)
         # 说说生成相关配置
         history_num = self.get_config("send.history_number", 5)
+        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         try:
             await renew_cookies(host, port, napcat_token)
         except Exception as e:
@@ -136,6 +138,7 @@ class SendFeedAction(BaseAction):
 
         prompt_pre = self.get_config("send.prompt", "")
         data = {
+            "current_time": current_time,
             "bot_personality": bot_personality,
             "topic": topic,
             "bot_expression": bot_expression
@@ -269,7 +272,7 @@ class ReadFeedAction(BaseAction):
         logger.info(f'获取到person_id={person_id}')
         target_qq = await person_api.get_person_value(person_id, "user_id")
         logger.info(f'获取到user_id={target_qq}')
-        impression = await person_api.get_person_value(person_id, "memory_points", ["无"])
+        impression = await person_api.get_person_value(person_id, "memory_points", ["无"])  # 获取记忆点
         #获取指定好友最近的说说
         num = self.get_config("read.read_number", 5)
         like_possibility = self.get_config("read.like_possibility", 1.0)
@@ -303,13 +306,15 @@ class ReadFeedAction(BaseAction):
         logger.info(f"成功读取到{len(feeds_list)}条说说")
         #模型配置
         models = llm_api.get_available_models()
-        text_model = self.get_config("models.text_model", "replyer_1")
+        text_model = self.get_config("models.text_model", "replyer")
         model_config = models[text_model]
         if not model_config:
             return False, "未配置LLM模型"
-
+        #人格配置
         bot_personality = config_api.get_global_config("personality.personality", "一个机器人")
         bot_expression = config_api.get_global_config("personality.reply_style", "内容积极向上")
+        #时间
+        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # 获取当前时间
         #逐条点赞回复
         processed_list = _load_processed_list()
         for feed in feeds_list:
@@ -327,6 +332,8 @@ class ReadFeedAction(BaseAction):
                 if not rt_con:
                     prompt_pre = self.get_config("read.prompt", "")
                     data = {
+                        "current_time": current_time,
+                        "created_time": feed['created_time'],
                         "bot_personality": bot_personality,
                         "bot_expression": bot_expression,
                         "target_name": target_name,
@@ -337,6 +344,8 @@ class ReadFeedAction(BaseAction):
                 else:
                     prompt_pre = self.get_config("read.rt_prompt", "")
                     data = {
+                        "current_time": current_time,
+                        "created_time": feed['created_time'],
                         "bot_personality": bot_personality,
                         "bot_expression": bot_expression,
                         "target_name": target_name,

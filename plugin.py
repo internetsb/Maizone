@@ -14,7 +14,7 @@ class MaizonePlugin(BasePlugin):
     """Maizone插件 - 让麦麦发QQ空间"""
     plugin_name = "MaizonePlugin"
     plugin_description = "让麦麦实现QQ空间点赞、评论、发说说"
-    plugin_version = "2.4.6"
+    plugin_version = "2.4.7"
     plugin_author = "internetsb"
     enable_plugin = True
     config_file_name = "config.toml"
@@ -51,7 +51,8 @@ class MaizonePlugin(BasePlugin):
             "image_prompt": ConfigField(type=str,
                                         default="请根据以下QQ空间说说内容配图，并构建生成配图的风格和prompt。说说主人信息：'{personality}'。说说内容:'{"
                                                 "message}'。请注意：仅回复用于生成图片的prompt，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )",
-                                        description="图片生成提示词，占位符包括{personality}（说说主人信息），{message}（说说内容）"),
+                                        description="图片生成提示词，"
+                                                    "占位符包括{personality}（说说主人信息），{message}（说说内容）,{current_time}（当前时间）"),
             "image_ref_prompt": ConfigField(type=str,
                                             default="说说主人的人设参考图片将随同提示词一起发送给生图AI，可使用'in the style of'或'根据图中人物'等描述引导生成风格",
                                             description="当image_ref为True时，附加在image_prompt后面的提示词"),
@@ -71,10 +72,11 @@ class MaizonePlugin(BasePlugin):
             "history_number": ConfigField(type=int, default=5,
                                           description="生成说说时参考的历史说说数量，越多越能避免重复内容，但会增加token消耗"),
             "prompt": ConfigField(type=str,
-                                  default="你是'{bot_personality}'，你想写一条主题是'{topic}'的说说发表在qq空间上，{"
-                                          "bot_expression}不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，可以适当使用颜文字，只输出一条说说正文的内容，不要输出多余内容("
-                                          "包括前后缀，冒号和引号，括号()，表情包，at或 @等 )",
-                                  description="生成说说的提示词，占位符包括{bot_personality}（人格），{topic}（说说主题），{bot_expression}（表达方式）"),
+                                  default="你是'{bot_personality}'，现在是'{current_time}'你想写一条主题是'{topic}'的说说发表在qq空间上，"
+                                          "{bot_expression}，不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，可以适当使用颜文字，只输出一条说说正文的内容，不要输出多余内容"
+                                          "(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )",
+                                  description="生成说说的提示词，占位符包括{current_time}（当前时间），{bot_personality}（人格），{topic}（说说主题），{"
+                                              "bot_expression}（表达方式）"),
         },
         "read": {
             "permission": ConfigField(type=list, default=['114514', '1919810', ],
@@ -85,21 +87,23 @@ class MaizonePlugin(BasePlugin):
             "like_possibility": ConfigField(type=float, default=1.0, description="麦麦读说说后点赞的概率（0到1）"),
             "comment_possibility": ConfigField(type=float, default=1.0, description="麦麦读说说后评论的概率（0到1）"),
             "prompt": ConfigField(type=str,
-                                  default="你是'{bot_personality}'，你正在浏览你好友'{target_name}'的QQ空间，你看到了你的好友'{"
-                                          "target_name}'qq空间上内容是'{content}'的说说，你想要发表你的一条评论，你对'{target_name}'的印象是'{"
-                                          "impression}'，若与你的印象点相关，可以适当评论相关内容，无关则忽略此印象，{"
-                                          "bot_expression}，回复的平淡一些，简短一些，说中文，不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，不要输出多余内容("
-                                          "包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。只输出回复内容",
-                                  description="对无转发内容说说进行评论的提示词，占位符包括{bot_personality}（人格），{target_name}（说说主人名称），{"
-                                              "content}（说说内容），{impression}（对说说主人的印象点），{bot_expression}（表达方式）"),
+                                  default="你是'{bot_personality}'，你正在浏览你好友'{target_name}'的QQ空间，你看到了你的好友'{target_name}'"
+                                          "在qq空间上在'{created_time}'发了一条内容是'{content}'的说说，你想要发表你的一条评论，现在是'{current_time}'"
+                                          "你对'{target_name}'的印象是'{impression}'，若与你的印象点相关，可以适当评论相关内容，无关则忽略此印象，"
+                                          "{bot_expression}，回复的平淡一些，简短一些，说中文，不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，不要输出多余内容"
+                                          "(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。只输出回复内容",
+                                  description="对无转发内容说说进行评论的提示词，占位符包括{current_time}（当前时间），{bot_personality}（人格），"
+                                              "{target_name}（说说主人名称），{created_time}（说说发布时间），"
+                                              "{content}（说说内容），{impression}（对说说主人的印象点），{bot_expression}（表达方式）"),
             "rt_prompt": ConfigField(type=str,
-                                     default="你是'{bot_personality}'，你正在浏览你好友'{target_name}'的QQ空间，你看到了你的好友'{"
-                                             "target_name}'在qq空间上转发了一条内容为'{rt_con}'的说说，你的好友的评论为'{content}'，你对'{"
-                                             "target_name}'的印象是'{"
-                                             "impression}'，若与你的印象点相关，可以适当评论相关内容，无关则忽略此印象，你想要发表你的一条评论，{"
-                                             "bot_expression}，回复的平淡一些，简短一些，说中文，不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，不要输出多余内容("
-                                             "包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。只输出回复内容",
-                                     description="对转发的说说进行评论的提示词，占位符包括{bot_personality}（人格），{target_name}（说说主人名称），{"
+                                     default="你是'{bot_personality}'，你正在浏览你好友'{target_name}'的QQ空间，你看到了你的好友'{target_name}'"
+                                             "在qq空间上在'{created_time}'转发了一条内容为'{rt_con}'的说说，你的好友的评论为'{content}'，你对'{"
+                                             "target_name}'的印象是'{impression}'，若与你的印象点相关，可以适当评论相关内容，无关则忽略此印象，"
+                                             "现在是'{current_time}'，你想要发表你的一条评论，{bot_expression}，"
+                                             "回复的平淡一些，简短一些，说中文，不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，"
+                                             "不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。只输出回复内容",
+                                     description="对转发的说说进行评论的提示词，占位符包括{current_time}（当前时间），{bot_personality}（人格），{"
+                                                 "target_name}（说说主人名称），{created_time}（说说发布时间），{"
                                                  "content}（说说评论内容），{rt_con}（转发说说内容），{impression}（对说说主人的印象点），{"
                                                  "bot_expression}（表达方式）"),
         },
@@ -112,12 +116,14 @@ class MaizonePlugin(BasePlugin):
                                         description="需要回复评论的自己最新说说数量"),
             "interval_minutes": ConfigField(type=int, default=15, description="阅读间隔(分钟)"),
             "reply_prompt": ConfigField(type=str,
-                                        default="你是'{bot_personality}'，你的好友'{nickname}'评论了你QQ空间上的一条内容为'{"
-                                                "content}'说说，你的好友对该说说的评论为:'{comment_content}'，你想要对此评论进行回复，你对该好友的印象是:{"
-                                                "impression}，若与你的印象点相关，可以适当回复相关内容，无关则忽略此印象，{"
-                                                "bot_expression}，回复的平淡一些，简短一些，说中文，不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，不要输出多余内容("
-                                                "包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。只输出回复内容",
-                                        description="自动回复评论的提示词，占位符包括{bot_personality}（人格），{nickname}（评论者昵称），{"
+                                        default="你是'{bot_personality}'，你的好友'{nickname}'在'{created_time}'评论了你QQ空间上的一条内容为"
+                                                "'{content}'的说说，你的好友对该说说的评论为:'{comment_content}'，"
+                                                "现在是'{current_time}'，你想要对此评论进行回复，你对该好友的印象是:"
+                                                "'{impression}'，若与你的印象点相关，可以适当回复相关内容，无关则忽略此印象，"
+                                                "{bot_expression}，回复的平淡一些，简短一些，说中文，不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，"
+                                                "不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。只输出回复内容",
+                                        description="自动回复评论的提示词，占位符包括{current_time}（当前时间），{bot_personality}（人格），{"
+                                                    "nickname}（评论者昵称），{created_time}（评论时间），{"
                                                     "content}（说说内容），{comment_content}（评论内容），{impression}（对评论者的印象点），{"
                                                     "bot_expression}（表达方式）"),
         },

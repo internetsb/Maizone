@@ -1,3 +1,4 @@
+import datetime
 from typing import Optional
 from pathlib import Path
 
@@ -68,7 +69,8 @@ class SendFeedCommand(BaseCommand):
         image_number = self.get_config("send.image_number", 1)
         # 说说生成相关配置
         history_number = self.get_config("send.history_number", 5)
-
+        # 当前时间
+        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         # 更新cookies
         try:
             await renew_cookies(host, port, napcat_token)
@@ -79,6 +81,7 @@ class SendFeedCommand(BaseCommand):
         prompt_pre = self.get_config("send.prompt", "")
         if topic:
             data = {
+                "current_time": current_time,
                 "bot_personality": bot_personality,
                 "topic": topic,
                 "bot_expression": bot_expression
@@ -86,6 +89,7 @@ class SendFeedCommand(BaseCommand):
             prompt = prompt_pre.format(**data)
         else:
             data = {
+                "current_time": current_time,
                 "bot_personality": bot_personality,
                 "bot_expression": bot_expression,
                 "topic": "随机"

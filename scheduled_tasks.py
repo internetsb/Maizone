@@ -172,8 +172,11 @@ class FeedMonitor:
                         user_id = comment['qq_account']
                         person_id = person_api.get_person_id("qq", user_id)
                         impression = await person_api.get_person_value(person_id, "memory_points", ["无"])
+                        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # 获取当前时间
                         prompt_pre = self.plugin.get_config("monitor.reply_prompt", "")
                         data = {
+                            "current_time": current_time,
+                            "created_time": comment['created_time'],
                             "bot_personality": bot_personality,
                             "bot_expression": bot_expression,
                             "nickname": comment['nickname'],
@@ -214,10 +217,14 @@ class FeedMonitor:
                     continue
                 person_id = person_api.get_person_id("qq", target_qq)
                 impression = await person_api.get_person_value(person_id, "memory_points", ["无"])
+                current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # 获取当前时间
+                created_time = feed.get("created_time", "未知时间")
 
                 if not rt_con:
                     prompt_pre = self.plugin.get_config("read.prompt", "")
                     data = {
+                        "current_time": current_time,
+                        "created_time": created_time,
                         "bot_personality": bot_personality,
                         "bot_expression": bot_expression,
                         "target_name": target_qq,
@@ -228,6 +235,8 @@ class FeedMonitor:
                 else:
                     prompt_pre = self.plugin.get_config("read.rt_prompt", "")
                     data = {
+                        "current_time": current_time,
+                        "created_time": created_time,
                         "bot_personality": bot_personality,
                         "bot_expression": bot_expression,
                         "target_name": target_qq,
@@ -426,7 +435,6 @@ class ScheduleSender:
         bot_personality = config_api.get_global_config("personality.personality", "一个蓝发猫娘")
         bot_expression = config_api.get_global_config("personality.reply_style", "内容积极向上")
         # 核心配置
-        qq_account = config_api.get_global_config("bot.qq_account", "")
         port = self.plugin.get_config("plugin.http_port", "9999")
         napcat_token = self.plugin.get_config("plugin.napcat_token", "")
         host = self.plugin.get_config("plugin.http_host", "127.0.0.1")
@@ -439,6 +447,7 @@ class ScheduleSender:
         image_number = self.plugin.get_config("send.image_number", 1)
         # 说说生成相关配置
         history_number = self.plugin.get_config("send.history_number", 5)
+        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # 获取当前时间
         # 更新cookies
         try:
             await renew_cookies(host, port, napcat_token)
@@ -450,6 +459,7 @@ class ScheduleSender:
         if random_topic:
             prompt_pre = self.plugin.get_config("send.prompt", "")
             data = {
+                "current_time": current_time,
                 "bot_personality": bot_personality,
                 "bot_expression": bot_expression,
                 "topic": "随机"
@@ -459,6 +469,7 @@ class ScheduleSender:
             fixed_topic = random.choice(fixed_topics)
             prompt_pre = self.plugin.get_config("send.prompt", "")
             data = {
+                "current_time": current_time,
                 "bot_personality": bot_personality,
                 "bot_expression": bot_expression,
                 "topic": fixed_topic

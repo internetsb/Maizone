@@ -1,4 +1,5 @@
 import base64
+import datetime
 import json
 import os
 import time
@@ -691,7 +692,7 @@ class QzoneAPI:
                 if not target_qq or not tid:
                     logger.error(f"无效的说说数据: target_qq={target_qq}, tid={tid}")
                     continue
-                #print(feed)
+                # print(feed)
 
                 html_content = feed.get('html', '')
                 if not html_content:
@@ -699,6 +700,9 @@ class QzoneAPI:
                     continue
 
                 soup = bs4.BeautifulSoup(html_content, 'html.parser')
+
+                # 解析说说时间 - 相对时间，如'昨天17:50'
+                created_time = feed.get('feedstime', '').strip()
 
                 # 提取文字内容
                 text_div = soup.find('div', class_='f-info')
@@ -764,6 +768,10 @@ class QzoneAPI:
                         else:
                             content = ""
 
+                        # 提取评论时间（直接使用相对时间字符串）
+                        comment_time_span = item.select_one('span.state')
+                        comment_time = comment_time_span.get_text(strip=True) if comment_time_span else ""
+
                         # 检查是否是回复
                         parent_tid = None
                         parent_div = item.find_parent('div', class_='mod-comments-sub')
@@ -775,14 +783,16 @@ class QzoneAPI:
                         comments_list.append({
                             'qq_account': str(qq_account),
                             'nickname': nickname,
-                            'comment_tid': int(comment_tid),
+                            'comment_tid': int(comment_tid) if comment_tid.isdigit() else 0,
                             'content': content,
-                            'parent_tid': parent_tid if parent_tid is None else int(parent_tid)
+                            "created_time": comment_time,  # 直接使用相对时间字符串
+                            'parent_tid': int(parent_tid) if parent_tid and parent_tid.isdigit() else None
                         })
 
                 feeds_list.append({
                     'target_qq': str(target_qq),
                     'tid': str(tid),
+                    "created_time": created_time,  # 相对时间字符串
                     'content': text,
                     'images': images,
                     'videos': videos,

@@ -30,7 +30,6 @@ def encode_file(img):
     encoded_string = base64.b64encode(byte_data).decode("utf-8")
     return f"data:{mime_type};base64,{encoded_string}"
 
-
 async def generate_image(provider: str, image_model: str, api_key: str, image_prompt: str, image_dir: str,
                          batch_size: int = 1, image_size: str = None) -> bool:
     """
@@ -335,10 +334,12 @@ async def send_feed(message: str,
                                                        "Kwai-Kolors/Kolors")  # 获取图片模型配置
             enable_ref = config_api.get_plugin_config(plugin_config, "models.image_ref", False)  # 启用参考图
             image_size = config_api.get_plugin_config(plugin_config, "models.image_size", None)  # 图片尺寸
+            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # 获取当前时间
             logger.info(f"正在生成图片提示词...")
             # 生成图片提示词
             prompt_pre = config_api.get_plugin_config(plugin_config, "models.image_prompt", "")
             data = {
+                "current_time": current_time,
                 "personality": personality,
                 "message": message
             }
