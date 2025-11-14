@@ -32,7 +32,7 @@ Maizone（麦麦空间）插件v2.4.7，让你的麦麦发说说，读QQ空间�
    git clone https://github.com/internetsb/Maizone.git
    ```
 
-2. 将`Maizone\`文件夹放入`MaiBot\plugins`文件夹下
+2. 将`Maizone\`文件夹放入`MaiBot\plugins`文件夹下（路径中不要含有标点符号，中文字符）
 
 3. 安装相应依赖(部分依赖MaiBot已安装)，示例：
 
@@ -135,9 +135,9 @@ Maizone（麦麦空间）插件v2.4.7，让你的麦麦发说说，读QQ空间�
 
   **A：安装依赖失败，请确保在MaiBot运行的环境下，按照安装麦麦时的方法，选择恰当的给出的方式安装依赖**
 
-- **Q：No module named 'plugins.Maizone-2'**
+- **Q：No module named 'plugins.Maizone-2'**/**'No module named 'plugins.internetsb'**
 
-  **A：'.'导致被错误地识别为了包，请重命名文件夹为Maizone**
+  **A：'.'导致被错误地识别为了包，请重命名文件夹为Maizone，不要含有标点符号及中文字符**
 
 - **Q：我发了一条说说，但bot没有回复**
 
