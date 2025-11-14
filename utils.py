@@ -334,6 +334,8 @@ async def send_feed(message: str,
                                                        "Kwai-Kolors/Kolors")  # 获取图片模型配置
             enable_ref = config_api.get_plugin_config(plugin_config, "models.image_ref", False)  # 启用参考图
             image_size = config_api.get_plugin_config(plugin_config, "models.image_size", None)  # 图片尺寸
+            if not image_size:
+                image_size = None
             current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # 获取当前时间
             logger.info(f"正在生成图片提示词...")
             # 生成图片提示词
