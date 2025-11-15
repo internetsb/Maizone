@@ -36,6 +36,7 @@ class MaizonePlugin(BasePlugin):
             "http_host": ConfigField(type=str, default='127.0.0.1', description="Napcat设定http服务器地址"),
             "http_port": ConfigField(type=str, default='9999', description="Napcat设定http服务器端口号"),
             "napcat_token": ConfigField(type=str, default="", description="Napcat服务认证Token"),
+            "cookie_methods": ConfigField(type=list, default=['napcat', 'clientkey', 'qrcode', 'local', ], description="获取Cookie的方法，顺序尝试，可选napcat,clientkey,qrcode,local"),
         },
         "models": {
             "text_model": ConfigField(type=str, default="replyer",
@@ -47,7 +48,8 @@ class MaizonePlugin(BasePlugin):
             "image_ref": ConfigField(type=bool, default=False,
                                      description="是否启用人设参考图（请重命名为done_ref，后缀不变，放入images文件夹）"),
             "api_key": ConfigField(type=str, default="", description="相应提供商的API密钥（用于生成说说配图）"),
-            "image_size": ConfigField(type=str, default="", description="生成图片的尺寸，如1024x768，是否支持请参看具体模型说明，为空则不限制"),
+            "image_size": ConfigField(type=str, default="",
+                                      description="生成图片的尺寸，如1024x768，是否支持请参看具体模型说明，为空则不限制"),
             "image_prompt": ConfigField(type=str,
                                         default="请根据以下QQ空间说说内容配图，并构建生成配图的风格和prompt。说说主人信息：'{personality}'。说说内容:'{"
                                                 "message}'。请注意：仅回复用于生成图片的prompt，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )",

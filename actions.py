@@ -114,6 +114,7 @@ class SendFeedAction(BaseAction):
         port = self.get_config("plugin.http_port", "9999")
         napcat_token = self.get_config("plugin.napcat_token", "")
         host = self.get_config("plugin.http_host", "127.0.0.1")
+        cookie_methods = self.get_config("plugin.cookie_methods", ["napcat", "clientkey", "qrcode", "local"])
         # 生成图片相关配置
         image_dir = str(Path(__file__).parent.resolve() / "images")
         apikey = self.get_config("models.api_key", "")
@@ -124,7 +125,7 @@ class SendFeedAction(BaseAction):
         history_num = self.get_config("send.history_number", 5)
         current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         try:
-            await renew_cookies(host, port, napcat_token)
+            await renew_cookies(host, port, napcat_token, cookie_methods)
         except Exception as e:
             logger.error(f"更新cookies失败: {str(e)}")
             await self.store_action_info(
@@ -255,10 +256,11 @@ class ReadFeedAction(BaseAction):
         port = self.get_config("plugin.http_port", "9999")
         napcat_token = self.get_config("plugin.napcat_token", "")
         host = self.get_config("plugin.http_host", "")
+        cookie_methods = self.get_config("plugin.cookie_methods", ["napcat", "clientkey", "qrcode", "local"])
 
         # 更新cookies
         try:
-            await renew_cookies(host, port, napcat_token)
+            await renew_cookies(host, port, napcat_token, cookie_methods)
         except Exception as e:
             logger.error(f"更新cookies失败: {str(e)}")
             await self.store_action_info(

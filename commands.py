@@ -1,13 +1,12 @@
 import datetime
-from typing import Optional
 from pathlib import Path
+from typing import Optional
 
-from src.plugin_system import BaseCommand
-from src.plugin_system.apis import llm_api, config_api, database_api
 from src.common.logger import get_logger
-
-from .qzone_api import create_qzone_api
+from src.plugin_system import BaseCommand
+from src.plugin_system.apis import llm_api, config_api
 from .cookie_manager import renew_cookies
+from .qzone_api import create_qzone_api
 from .utils import send_feed
 
 logger = get_logger("Maizone.commands")
@@ -56,10 +55,10 @@ class SendFeedCommand(BaseCommand):
         bot_personality = config_api.get_global_config("personality.personality", "一个机器人")
         bot_expression = config_api.get_global_config("personality.reply_style", "内容积极向上")
         # 核心配置
-        qq_account = config_api.get_global_config("bot.qq_account", "")
         port = self.get_config("plugin.http_port", "9999")
         napcat_token = self.get_config("plugin.napcat_token", "")
         host = self.get_config("plugin.http_host", "127.0.0.1")
+        cookie_methods = self.get_config("plugin.cookie_methods", ["napcat", "clientkey", "qrcode", "local"])
         # 生成图片相关配置
         enable_image = self.get_config("send.enable_image", "true")
         image_dir = str(Path(__file__).parent.resolve() / "images")
@@ -73,7 +72,7 @@ class SendFeedCommand(BaseCommand):
         current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         # 更新cookies
         try:
-            await renew_cookies(host, port, napcat_token)
+            await renew_cookies(host, port, napcat_token, cookie_methods)
         except Exception as e:
             logger.error(f"更新cookies失败: {str(e)}")
             return False, "更新cookies失败", True

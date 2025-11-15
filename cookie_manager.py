@@ -1,9 +1,10 @@
-import os
-import json
 import asyncio
-import time
+import json
+import os
 import re
+import time
 from pathlib import Path
+from typing import List, Optional
 
 import httpx
 
@@ -20,6 +21,9 @@ check_sig_url = "https://ptlogin2.qzone.qq.com/check_sig?pttype=1&uin={}&service
 # 内存中的上次扫码登录时间
 _last_qr_login_time = 0
 qrcode_path = str(Path(__file__).parent.resolve() / "qrcode.png")
+
+# 支持的cookie更新方法
+COOKIE_METHODS = ["napcat", "clientkey", "qrcode", "local"]
 
 
 def get_cookie_file_path(uin: str) -> str:
@@ -214,13 +218,33 @@ async def fetch_cookies_by_clientkey() -> dict:
         return cookies
 
 
-async def renew_cookies(host: str = "127.0.0.1", port: str = "9999", napcat_token: str = ""):
+def read_local_cookies(uin: str) -> dict:
+    """读取本地cookie文件"""
+    file_path = get_cookie_file_path(uin)
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"未找到本地cookie文件: {file_path}")
+    with open(file_path, "r", encoding="utf-8") as f:
+        cookie_dict = json.load(f)
+    logger.info("读取本地cookie文件")
+    return cookie_dict
+
+
+async def renew_cookies(
+        host: str = "127.0.0.1",
+        port: str = "9999",
+        napcat_token: str = "",
+        methods: Optional[List[str]] = None,
+        fallback_to_local: bool = True
+):
     """
     尝试更新cookie并保存到本地文件
-    1. 通过napcat获取cookie
-    2. 如果napcat获取失败，尝试通过clientkey获取cookie
-    3. 如果clientkey获取失败，尝试使用二维码登录
-    4. 如果二维码登录失败，尝试读取本地cookie文件
+
+    参数:
+        host: Napcat服务主机地址
+        port: Napcat服务端口
+        napcat_token: Napcat认证令牌
+        methods: 更新方法列表，按顺序尝试，支持: "napcat", "clientkey", "qrcode", "local"
+        fallback_to_local: 当所有方法都失败时是否回退到本地cookie文件
     """
     # 1小时内无需更新cookie
     global _last_qr_login_time
@@ -229,56 +253,85 @@ async def renew_cookies(host: str = "127.0.0.1", port: str = "9999", napcat_toke
     if duration < 1 * 3600 and _last_qr_login_time != 0:
         logger.info(f"上次更新cookie在{duration}秒前，跳过更新cookie")
         return
-    # 尝试通过napcat获取cookie
+
+    # 获取配置的更新方法
+    if methods is None:
+        methods = ["napcat", "clientkey", "qrcode", "local"]
+
+    # 验证方法列表
+    valid_methods = [method for method in methods if method in COOKIE_METHODS]
+    if not valid_methods:
+        logger.warning("没有有效的cookie更新方法，使用默认方法")
+        valid_methods = ["napcat", "clientkey", "qrcode", "local"]
+
+    logger.info(f"使用cookie更新方法: {valid_methods}")
+
     uin = config_api.get_global_config('bot.qq_account', "")
     file_path = get_cookie_file_path(uin)
     directory = os.path.dirname(file_path)
-    try:
-        domain = "user.qzone.qq.com"
-        cookie_dict = await fetch_cookies_by_napcat(host, domain, port, napcat_token)
-    # 尝试通过clientkey获取cookie
-    except Exception as e:
-        logger.error(f"Napcat获取cookie异常: {str(e)}。尝试通过ClientKey获取cookie")
+
+    cookie_dict = None
+    last_error = None
+
+    # 按配置的方法顺序尝试获取cookie
+    for method in valid_methods:
         try:
-            cookie_dict = await fetch_cookies_by_clientkey()
-        # 尝试使用二维码登录或读取本地cookie
+            if method == "napcat":
+                logger.info("尝试通过Napcat获取cookie...")
+                domain = "user.qzone.qq.com"
+                cookie_dict = await fetch_cookies_by_napcat(host, domain, port, napcat_token)
+                logger.info("Napcat获取cookie成功")
+                break
+
+            elif method == "clientkey":
+                logger.info("尝试通过ClientKey获取cookie...")
+                cookie_dict = await fetch_cookies_by_clientkey()
+                logger.info("ClientKey获取cookie成功")
+                break
+
+            elif method == "qrcode":
+                # 检查是否应该跳过二维码登录
+                if should_skip_qr_login():
+                    logger.info("上次扫码登录在20小时内，跳过二维码登录")
+                    continue
+
+                logger.info("尝试通过二维码登录获取cookie...")
+                login = QzoneLogin()
+                cookie_dict = await login.login_via_qrcode()
+                logger.info("二维码登录成功")
+                break
+
+            elif method == "local":
+                logger.info("尝试读取本地cookie文件...")
+                cookie_dict = read_local_cookies(uin)
+                logger.info("读取本地cookie文件成功")
+                break
+
         except Exception as e:
-            logger.error(f"ClientKey获取cookie异常: {str(e)}")
+            logger.error(f"{method}方法获取cookie失败: {str(e)}")
+            last_error = e
+            continue
 
-            # 检查是否应该跳过二维码登录
-            if should_skip_qr_login():
-                logger.info("上次扫码登录在20小时内，跳过二维码登录，直接读取本地cookie")
-                try:
-                    if not os.path.exists(file_path):
-                        raise FileNotFoundError(f"未找到本地cookie文件: {file_path}")
-                    with open(file_path, "r", encoding="utf-8") as f:
-                        cookie_dict = json.load(f)
-                    logger.info("读取本地cookie文件")
-                except FileNotFoundError as e3:
-                    logger.error(f"本地cookie文件不存在: {str(e3)}")
-                    raise RuntimeError("获取cookie失败")
+    # 如果所有方法都失败，尝试回退到本地文件
+    if cookie_dict is None and fallback_to_local:
+        try:
+            logger.info("所有配置方法都失败，尝试读取本地cookie文件作为回退")
+            cookie_dict = read_local_cookies(uin)
+        except Exception as e:
+            logger.error(f"回退到本地cookie文件失败: {str(e)}")
+            if last_error:
+                raise RuntimeError(f"所有cookie获取方法都失败，最后错误: {str(last_error)}") from last_error
             else:
-                logger.info("尝试使用二维码登录")
-                try:
-                    # 使用二维码登录
-                    logger.info("开始二维码登录流程...")
-                    login = QzoneLogin()
-                    cookie_dict = await login.login_via_qrcode()
-                    logger.info("二维码登录成功")
-                # 尝试寻找本地cookie文件
-                except Exception as e2:
-                    logger.error(f"二维码登录失败: {str(e2)}，尝试读取本地cookie文件")
-                    try:
-                        if not os.path.exists(file_path):
-                            raise FileNotFoundError(f"未找到本地cookie文件: {file_path}")
-                        with open(file_path, "r", encoding="utf-8") as f:
-                            cookie_dict = json.load(f)
-                        logger.warning("读取本地cookie文件，可能cookie已过期")
-                    except FileNotFoundError as e3:
-                        logger.error(f"本地cookie文件不存在: {str(e3)}")
-                        raise RuntimeError("获取cookie失败")
+                raise RuntimeError("所有cookie获取方法都失败") from e
 
-    # 将cookie字典保存到路径
+    # 如果仍然没有获取到cookie，抛出异常
+    if cookie_dict is None:
+        if last_error:
+            raise RuntimeError(f"所有cookie获取方法都失败，最后错误: {str(last_error)}") from last_error
+        else:
+            raise RuntimeError("所有cookie获取方法都失败")
+
+    # 将cookie字典保存到文件
     try:
         if not os.path.exists(directory):
             os.makedirs(directory)
@@ -287,7 +340,7 @@ async def renew_cookies(host: str = "127.0.0.1", port: str = "9999", napcat_toke
             json.dump(cookie_dict, f, indent=4, ensure_ascii=False)
         logger.info(f"[OK] cookies 已保存至: {file_path}")
         update_last_qr_login_time()
-    # 异常处理
+
     except PermissionError as e:
         logger.error(f"文件写入权限不足: {str(e)}")
         raise
@@ -299,6 +352,4 @@ async def renew_cookies(host: str = "127.0.0.1", port: str = "9999", napcat_toke
         raise
     except Exception as e:
         logger.error(f"处理cookie时发生异常: {str(e)}")
-
         raise RuntimeError(f"处理cookie时发生异常: {str(e)}")
-

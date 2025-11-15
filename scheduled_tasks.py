@@ -107,6 +107,7 @@ class FeedMonitor:
         port = self.plugin.get_config("plugin.http_port", "9999")
         napcat_token = self.plugin.get_config("plugin.napcat_token", "")
         host = self.plugin.get_config("plugin.http_host", "")
+        cookie_methods = self.plugin.get_config("plugin.cookie_methods", ["napcat", "clientkey", "qrcode", "local"])
         show_prompt = self.plugin.get_config("models.show_prompt", False)
         self_readnum = self.plugin.get_config("monitor.self_readnum", 5)
         #模型配置
@@ -120,7 +121,7 @@ class FeedMonitor:
         bot_expression = config_api.get_global_config("personality.reply_style", "内容积极向上")
         # 更新cookies
         try:
-            await renew_cookies(host, port, napcat_token)
+            await renew_cookies(host, port, napcat_token, cookie_methods)
         except Exception as e:
             logger.error(f"更新cookies失败: {str(e)}")
             return False, "更新cookies失败"
@@ -203,7 +204,7 @@ class FeedMonitor:
 
                         logger.info(f"正在回复{comment['nickname']}的评论：{comment['content']}...")
 
-                        await renew_cookies(host, port, napcat_token)
+                        await renew_cookies(host, port, napcat_token, cookie_methods)
                         success = await reply_feed(fid, target_qq, comment['nickname'], reply, comment['comment_tid'])
                         if not success:
                             logger.error(f"回复评论{comment['content']}失败")
@@ -438,6 +439,7 @@ class ScheduleSender:
         port = self.plugin.get_config("plugin.http_port", "9999")
         napcat_token = self.plugin.get_config("plugin.napcat_token", "")
         host = self.plugin.get_config("plugin.http_host", "127.0.0.1")
+        cookie_methods = self.plugin.get_config("plugin.cookie_methods", ["napcat", "clientkey", "qrcode", "local"])
         # 生成图片相关配置
         image_dir = str(Path(__file__).parent.resolve() / "images")
         enable_image = self.plugin.get_config("send.enable_image", True)
@@ -450,7 +452,7 @@ class ScheduleSender:
         current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # 获取当前时间
         # 更新cookies
         try:
-            await renew_cookies(host, port, napcat_token)
+            await renew_cookies(host, port, napcat_token, cookie_methods)
         except Exception as e:
             logger.error(f"更新cookies失败: {str(e)}")
             return
