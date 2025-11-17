@@ -122,22 +122,27 @@ def _save_processed_list(processed_list: Dict[str, List[str]]):
 def _load_processed_list() -> Dict[str, List[str]]:
     """从文件加载已处理说说及评论字典"""
     file_path = str(Path(__file__).parent.resolve() / "processed_list.json")
+
     if os.path.exists(file_path):
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
+                logger.debug("正在加载已处理说说列表")
                 return json.load(f)
         except Exception as e:
             logger.error(f"加载已处理评论失败: {str(e)}")
+            return {}
+    logger.warning("未找到已处理评论列表，将创建新列表")
     return {}
 
 
 class FeedMonitor:
-    """说说监控类"""
+    """定时监控好友说说的类"""
 
     def __init__(self, plugin):
         self.plugin = plugin
         self.is_running = False
         self.task = None
+        self.last_check_time = 0
 
     async def start(self):
         """启动监控任务"""
@@ -431,141 +436,197 @@ class ScheduleSender:
                 pass
         logger.info("定时发送说说任务已停止")
 
-    def _should_reset_schedule(self) -> bool:
-        """检查是否需要重置发送时间表"""
-        current_date = datetime.datetime.now().date()
-        return self.last_reset_date != current_date
-
     def _check_today_send_decision(self):
-        """检查今天是否允许发送说说"""
-        probability = self.plugin.get_config("schedule.probability", 1.0)
-        self.today_send_enabled = random.random() < probability
-        if self.today_send_enabled:
-            logger.info(f"今日已决定发送说说，概率：{probability}")
+        """每天0点决定今天是否发送说说"""
+        p = self.plugin.get_config("schedule.probability", 1.0)  # 默认概率为1.0（100%发送）
+
+        # 生成0-1之间的随机数，如果小于p则发送，否则不发送
+        if random.random() < p:
+            self.today_send_enabled = True
+            logger.info(f"今天允许发送说说 (概率: {p:.2f})")
         else:
-            logger.info(f"今日已决定不发送说说，概率：{probability}")
+            self.today_send_enabled = False
+            logger.info(f"今天不发送说说 (概率: {p:.2f})")
 
     def _generate_fluctuate_table(self):
-        """生成波动后的发送时间表"""
-        schedule_times = self.plugin.get_config("schedule.schedule_times", ["20:00"])
-        fluctuation_minutes = self.plugin.get_config("schedule.fluctuation_minutes", 0)
+        """生成随机波动时间表"""
+        schedule_times = self.plugin.get_config("schedule.schedule_times", ["08:00", "20:00"])
+        fluctuate_minutes = self.plugin.get_config("schedule.fluctuation_minutes", 0)
 
+        # 清空当前波动表
         self.fluctuate_table = []
 
-        for time_str in schedule_times:
-            try:
-                # 解析原始时间
-                hour, minute = map(int, time_str.split(':'))
-                base_time = datetime.datetime.now().replace(hour=hour, minute=minute, second=0, microsecond=0)
+        # 如果波动分钟数为0，直接使用计划时间
+        if fluctuate_minutes == 0:
+            self.fluctuate_table = schedule_times.copy()
+            self.fluctuate_table.sort()
+            logger.info(f"无波动，使用计划时间: {self.fluctuate_table}")
+            return
 
-                # 添加随机波动
-                if fluctuation_minutes > 0:
-                    fluctuation = random.randint(-fluctuation_minutes, fluctuation_minutes)
-                    final_time = base_time + datetime.timedelta(minutes=fluctuation)
-                else:
-                    final_time = base_time
+        # 为每个计划时间生成一个随机波动时间
+        for base_time in schedule_times:
+            # 解析基础时间
+            base_hour, base_minute = map(int, base_time.split(":"))
+            base_total_minutes = base_hour * 60 + base_minute
+            # 生成随机偏移量
+            offset = random.randint(-fluctuate_minutes, fluctuate_minutes)
+            # 处理溢出
+            total_minutes = base_total_minutes + offset
+            if total_minutes < 0:
+                total_minutes += 24 * 60
+            elif total_minutes >= 24 * 60:
+                total_minutes -= 24 * 60
+            # 转换回时间格式
+            h = total_minutes // 60
+            m = total_minutes % 60
+            fluctuate_time = f"{h:02d}:{m:02d}"
+            # 添加到波动表
+            if fluctuate_time not in self.fluctuate_table:
+                self.fluctuate_table.append(fluctuate_time)
 
-                # 格式化为字符串
-                final_time_str = final_time.strftime("%H:%M")
-                self.fluctuate_table.append(final_time_str)
-                logger.info(f"生成发送时间：{final_time_str}（原始：{time_str}，波动：{fluctuation_minutes}分钟）")
+        # 按时间排序波动表
+        self.fluctuate_table.sort()
+        logger.info(f"波动后的发送时间表: {self.fluctuate_table}")
 
-            except Exception as e:
-                logger.error(f"解析发送时间失败：{time_str}，错误：{str(e)}")
-                continue
+    def _should_reset_schedule(self):
+        """检查是否需要重置时间表（每天0点）"""
+        current_date = datetime.datetime.now().date()
+        return current_date != self.last_reset_date
 
     async def _schedule_loop(self):
         """定时发送循环"""
         while self.is_running:
             try:
-                # 检查是否需要重置发送时间表（每天0点）
+                # 检查是否需要重置时间表（每天0点）
                 if self._should_reset_schedule():
+                    logger.info("检测到日期变化，重置发送时间表")
                     self.last_reset_date = datetime.datetime.now().date()
-                    self._generate_fluctuate_table()  # 重新生成时间表
+                    self._generate_fluctuate_table()
                     self._check_today_send_decision()  # 重新决定今天是否发送
 
                 # 获取当前时间
                 current_time = datetime.datetime.now().strftime("%H:%M")
 
-                # 检查是否到达发送时间
+                # 检查是否到达发送时间且今天允许发送
                 if current_time in self.fluctuate_table and self.today_send_enabled:
                     # 避免同一分钟内重复发送
                     if time.time() - self.last_send_time > 60:
+                        logger.info("正在发送定时说说...")
+                        self.last_send_time = time.time()
                         await self.send_scheduled_feed()
-                        # 从时间表中移除已发送的时间
                         self.fluctuate_table.remove(current_time)
+                        logger.info(f"剩余发送时间点: {self.fluctuate_table}")
+                elif current_time in self.fluctuate_table and not self.today_send_enabled:
+                    # 如果到达发送时间但今天不允许发送，也移除该时间点
+                    logger.info(f"到达发送时间 {current_time}，但今天不发送说说")
+                    self.fluctuate_table.remove(current_time)
+                    logger.info(f"剩余发送时间点: {self.fluctuate_table}")
 
-                await asyncio.sleep(60)  # 每分钟检查一次
+                # 每分钟检查一次
+                await asyncio.sleep(60)
 
+            except asyncio.CancelledError:
+                break
             except Exception as e:
-                logger.error(f"定时发送循环出错: {str(e)}")
-                await asyncio.sleep(60)  # 出错后等待1分钟再重试
+                logger.error(f"定时发送任务出错: {str(e)}")
+                await asyncio.sleep(60)  # 出错后等待一分钟再继续
 
     async def send_scheduled_feed(self):
         """发送定时说说"""
+        # 模型配置
+        models = llm_api.get_available_models()
+        text_model = self.plugin.get_config("models.text_model", "replyer")
+        model_config = models[text_model]
+        if not model_config:
+            logger.error("未配置LLM模型")
+            return
+
+        # 获取主题设置
+        random_topic = self.plugin.get_config("schedule.random_topic", True)
+        fixed_topics = self.plugin.get_config("schedule.fixed_topics", ["日常生活", "心情分享", "有趣见闻"])
+        # 人格配置
+        bot_personality = config_api.get_global_config("personality.personality", "一个蓝发猫娘")
+        bot_expression = config_api.get_global_config("personality.reply_style", "内容积极向上")
+        # 核心配置
+        port = self.plugin.get_config("plugin.http_port", "9999")
+        napcat_token = self.plugin.get_config("plugin.napcat_token", "")
+        host = self.plugin.get_config("plugin.http_host", "127.0.0.1")
+        cookie_methods = self.plugin.get_config("plugin.cookie_methods", ["napcat", "clientkey", "qrcode", "local"])
+        # 生成图片相关配置
+        image_dir = str(Path(__file__).parent.resolve() / "images")
+        enable_image = self.plugin.get_config("send.enable_image", True)
+        apikey = self.plugin.get_config("models.api_key", "")
+        image_mode = self.plugin.get_config("send.image_mode", "random").lower()
+        ai_probability = self.plugin.get_config("send.ai_probability", 0.5)
+        image_number = self.plugin.get_config("send.image_number", 1)
+        # 说说生成相关配置
+        history_number = self.plugin.get_config("send.history_number", 5)
+        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # 获取当前时间
+        # 更新cookies
         try:
-            # 获取配置
-            enable_image = self.plugin.get_config("send.enable_image", True)
-            image_mode = self.plugin.get_config("send.image_mode", "only_emoji")
-            ai_probability = self.plugin.get_config("send.ai_probability", 0.5)
-            image_number = self.plugin.get_config("send.image_number", 1)
-            history_number = self.plugin.get_config("send.history_number", 5)
-            random_topic = self.plugin.get_config("schedule.random_topic", True)
-            fixed_topics = self.plugin.get_config("schedule.fixed_topics", [])
-
-            # 获取模型配置
-            models = llm_api.get_available_models()
-            text_model = self.plugin.get_config("models.text_model", "replyer")
-            model_config = models[text_model]
-            if not model_config:
-                logger.error("未配置LLM模型")
-                return
-
-            # 获取人格配置
-            bot_personality = config_api.get_global_config("personality.personality", "一个机器人")
-            bot_expression = config_api.get_global_config("personality.reply_style", "内容积极向上")
-            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-            # 确定主题
-            if random_topic:
-                topic = "随机主题"
-            else:
-                topic = random.choice(fixed_topics) if fixed_topics else "日常分享"
-
-            # 生成说说内容
+            await renew_cookies(host, port, napcat_token, cookie_methods)
+        except Exception as e:
+            logger.error(f"更新cookies失败: {str(e)}")
+            return
+        qzone = create_qzone_api()
+        # 生成说说内容
+        if random_topic:
             prompt_pre = self.plugin.get_config("send.prompt", "")
             data = {
                 "current_time": current_time,
                 "bot_personality": bot_personality,
-                "topic": topic,
-                "bot_expression": bot_expression
+                "bot_expression": bot_expression,
+                "topic": "随机"
+            }
+            prompt = prompt_pre.format(**data)
+        else:
+            fixed_topic = random.choice(fixed_topics)
+            prompt_pre = self.plugin.get_config("send.prompt", "")
+            data = {
+                "current_time": current_time,
+                "bot_personality": bot_personality,
+                "bot_expression": bot_expression,
+                "topic": fixed_topic
             }
             prompt = prompt_pre.format(**data)
 
-            logger.info(f"正在生成定时说说，主题：{topic}")
+        prompt += "\n以下是你最近发过的说说，写新说说时注意不要在相隔不长的时间发送相似内容的说说\n"
+        prompt += await qzone.get_send_history(history_number)
+        prompt += "\n只输出一条说说正文的内容，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )"
 
-            # 生成说说内容
-            success, feed_content, reasoning, model_name = await llm_api.generate_with_model(
-                prompt=prompt,
-                model_config=model_config,
-                request_type="story.generate",
-                temperature=0.7,
-                max_tokens=4096
-            )
+        show_prompt = self.plugin.get_config("models.show_prompt", False)
+        if show_prompt:
+            logger.info(f"生成说说prompt内容：{prompt}")
 
-            if not success:
-                logger.error("生成说说内容失败")
-                return
+        result = await llm_api.generate_with_model(
+            prompt=prompt,
+            model_config=model_config,
+            request_type="story.generate",
+            temperature=0.3,
+            max_tokens=4096
+        )
 
-            logger.info(f"成功生成说说内容：{feed_content}")
+        # 兼容不同的返回值格式
+        if len(result) == 4:
+            success, story, reasoning, model_name = result
+        elif len(result) == 3:
+            success, story, reasoning = result
+        else:
+            logger.error(f"LLM返回值格式不正确: {result}")
+            return False, "生成说说内容失败", True
 
-            # 发送说说
-            await send_feed(feed_content, enable_image, image_mode, ai_probability, image_number, history_number)
+        if not success:
+            return False, "生成说说内容失败", True
 
-            # 记录发送时间
-            self.last_send_time = time.time()
-            logger.info("定时说说发送成功")
+        logger.info(f"成功生成说说内容：'{story}'")
+        # 检查apikey
+        if image_mode != "only_emoji" and not apikey:
+            logger.warning('未配置API密钥，无法使用AI生成图片，将改为only_emoji模式')
+            image_mode = "only_emoji"  # 如果没有apikey，则只使用表情包
 
-        except Exception as e:
-            logger.error(f"发送定时说说失败: {str(e)}")
-            traceback.print_exc()
+        # 发送说说
+        success = await send_feed(story, image_dir, enable_image, image_mode, ai_probability, image_number)
+        if success:
+            logger.info(f"定时任务成功发送说说: {story}")
+        else:
+            logger.error("定时任务发送说说失败")
