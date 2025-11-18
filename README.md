@@ -86,11 +86,14 @@ Maizone（麦麦空间）插件v2.4.8，让你的麦麦发说说，读QQ空间�
 ### 修改配置文件
 请检查：
 1. MaiBot/config/bot_config.toml中qq_account是否为bot的QQ号
-请设置：
 
-1. 是否启用插件及各种功能
-2. 是否启用说说配图和ai生成配图（及相应的api_key）
-3. 权限名单及类型
+  请设置：
+
+2. 是否启用插件及各种功能
+
+3. 是否启用说说配图和ai生成配图（及相应的api_key）
+
+4. 权限名单及类型
 
 更多配置请看config.toml中的注释
 
@@ -104,13 +107,7 @@ Maizone（麦麦空间）插件v2.4.8，让你的麦麦发说说，读QQ空间�
 
 4. （可选）若有bot的人设图或者头像之类的，保存图片并命名为"done_ref.xxx"（xxx可为jpg,png等等）放入插件的images目录下，修改config.toml的image_ref为true，即可尝试让ai参考该图来生成图片（需要图生图模型）（效果不尽人意，重点应放在提示词）
 
-   **个人推荐：**
-
-   ModelScope的Qwen/Qwen-Image-Edit，我只测试了这个，若遇到不能使用的模型请联系我
-
-   SiliconFlow只推荐Kwai-Kolors/Kolors，个人感觉效果不如Qwen，但硅基流动的Qwen三毛一张图
-
-   若不在意价格，你也可以更换供应商，自行修改utils.py中的generate_image函数，将生成的图片保存至image_dir即可
+   若要使用其余模型及供应商，自行修改utils.py中的generate_image函数，将生成的图片保存至image_dir即可
 
 ### 快速开始
 **配置权限**：在config.toml中分别填写上send和read模块中的权限名单和类型
@@ -164,7 +161,7 @@ Maizone（麦麦空间）插件v2.4.8，让你的麦麦发说说，读QQ空间�
 
 部分代码来自仓库：[qzone-toolkit](https://github.com/gfhdhytghd/qzone-toolkit)
 
-感谢[xc94188](https://github.com/xc94188)、[myxxr](https://github.com/myxxr)、[UnCLAS-Prommer](https://github.com/UnCLAS-Prommer)、[XXXxx7258](https://github.com/XXXxx7258)提供的功能改进
+感谢[xc94188](https://github.com/xc94188)、[myxxr](https://github.com/myxxr)、[UnCLAS-Prommer](https://github.com/UnCLAS-Prommer)、[XXXxx7258](https://github.com/XXXxx7258)、[heitiehu-beep](https://github.com/heitiehu-beep)提供的功能改进
 
 魔改版麦麦，集成了魔改版插件[MoFox_Bot](https://github.com/MoFox-Studio/MoFox_Bot)
 
