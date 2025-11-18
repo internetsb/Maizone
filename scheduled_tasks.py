@@ -18,6 +18,95 @@ from .utils import monitor_read_feed, reply_feed, comment_feed, like_feed, send_
 logger = get_logger("Maizone.定时任务")
 
 
+def _is_in_silent_period(silent_hours_config: str, like_during_silent: bool = False, comment_during_silent: bool = False) -> tuple[bool, bool, bool]:
+    """
+    检查当前时间是否在静默时间段内
+
+    Args:
+        silent_hours_config: 静默时间段配置，格式如"23:00-07:00,12:00-14:00"
+        like_during_silent: 静默时间段内是否允许点赞
+        comment_during_silent: 静默时间段内是否允许评论
+
+    Returns:
+        tuple: (是否在静默时间段, 是否允许点赞, 是否允许评论)
+    """
+    if not silent_hours_config or not silent_hours_config.strip():
+        return False, True, True
+
+    try:
+        now = datetime.datetime.now()
+        current_time = now.hour * 60 + now.minute  # 当前时间转换为分钟数
+
+        # 解析静默时间段
+        periods = silent_hours_config.split(',')
+        is_silent = False
+
+        for period in periods:
+            period = period.strip()
+            if not period:
+                continue
+
+            # 解析时间段
+            if '-' not in period:
+                continue
+
+            start_str, end_str = period.split('-', 1)
+            start_time = _parse_time_to_minutes(start_str.strip())
+            end_time = _parse_time_to_minutes(end_str.strip())
+
+            if start_time is None or end_time is None:
+                continue
+
+            # 检查时间范围（处理跨天的情况）
+            if start_time <= end_time:
+                # 不跨天，如 12:00-14:00
+                if start_time <= current_time <= end_time:
+                    is_silent = True
+                    break
+            else:
+                # 跨天，如 23:00-07:00
+                if current_time >= start_time or current_time <= end_time:
+                    is_silent = True
+                    break
+
+        # 如果在静默时间段内，返回相应的权限控制
+        if is_silent:
+            return True, like_during_silent, comment_during_silent
+
+        return False, True, True
+
+    except Exception as e:
+        logger.error(f"解析静默时间段配置失败: {str(e)}")
+        return False, True, True
+
+
+def _parse_time_to_minutes(time_str: str) -> int:
+    """
+    将时间字符串转换为分钟数
+
+    Args:
+        time_str: 时间字符串，格式"HH:MM"
+
+    Returns:
+        int: 分钟数，解析失败返回None
+    """
+    try:
+        if ':' not in time_str:
+            return None
+
+        hour_str, minute_str = time_str.split(':', 1)
+        hour = int(hour_str.strip())
+        minute = int(minute_str.strip())
+
+        if 0 <= hour <= 23 and 0 <= minute <= 59:
+            return hour * 60 + minute
+        else:
+            return None
+
+    except (ValueError, AttributeError):
+        return None
+
+
 # ===== 定时任务功能 =====
 def _save_processed_list(processed_list: Dict[str, List[str]]):
     """保存已处理说说及评论字典到文件"""
@@ -102,6 +191,20 @@ class FeedMonitor:
 
     async def check_feeds(self, processed_comments: Dict[str, List[str]]):
         """检查空间说说并回复未读说说和评论"""
+
+        # 检查时间段控制
+        silent_hours = self.plugin.get_config("monitor.silent_hours", "")
+        like_during_silent = self.plugin.get_config("monitor.like_during_silent", True)
+        comment_during_silent = self.plugin.get_config("monitor.comment_during_silent", False)
+
+        is_silent, allow_like, allow_comment = _is_in_silent_period(silent_hours, like_during_silent, comment_during_silent)
+
+        if is_silent:
+            logger.info(f"当前时间在静默时间段内，点赞权限: {allow_like}, 评论权限: {allow_comment}")
+            # 如果在静默时间段且不允许点赞和评论，直接返回
+            if not allow_like and not allow_comment:
+                logger.info("静默时间段内不允许点赞和评论，跳过本次刷空间")
+                return True, "静默时间段内跳过刷空间"
 
         qq_account = config_api.get_global_config("bot.qq_account", "")
         port = self.plugin.get_config("plugin.http_port", "9999")
@@ -264,17 +367,26 @@ class FeedMonitor:
 
                 logger.info(f"成功生成评论内容：'{comment}'，即将发送")
 
-                success = await comment_feed(target_qq, fid, comment)
-                if not success:
-                    logger.error(f"评论说说{content}失败")
-                    return False, "评论说说失败"
-                logger.info(f"发送评论'{comment}'成功")
-                # 点赞说说
-                success = await like_feed(target_qq, fid)
-                if not success:
-                    logger.error(f"点赞说说{content}失败")
-                    return False, "点赞说说失败"
-                logger.info(f'点赞说说{content[:10]}..成功')
+                # 根据时间段控制决定是否评论
+                if allow_comment:
+                    success = await comment_feed(target_qq, fid, comment)
+                    if not success:
+                        logger.error(f"评论说说{content}失败")
+                        return False, "评论说说失败"
+                    logger.info(f"发送评论'{comment}'成功")
+                else:
+                    logger.info(f"静默时间段内，跳过评论")
+
+                # 根据时间段控制决定是否点赞
+                if allow_like:
+                    # 点赞说说
+                    success = await like_feed(target_qq, fid)
+                    if not success:
+                        logger.error(f"点赞说说{content}失败")
+                        return False, "点赞说说失败"
+                    logger.info(f'点赞说说{content[:10]}..成功')
+                else:
+                    logger.info(f"静默时间段内，跳过点赞")
                 # 记录该说说已处理
                 processed_comments[fid] = []
                 while len(processed_comments) > 100:

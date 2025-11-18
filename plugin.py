@@ -1,3 +1,4 @@
+import sys, os
 import asyncio
 from typing import List, Tuple, Type
 
@@ -117,6 +118,12 @@ class MaizonePlugin(BasePlugin):
             "self_readnum": ConfigField(type=int, default=5,
                                         description="需要回复评论的自己最新说说数量"),
             "interval_minutes": ConfigField(type=int, default=15, description="阅读间隔(分钟)"),
+            "silent_hours": ConfigField(type=str, default="22:00-07:00",
+                                        description="不刷空间的时间段（24小时制，格式\"HH:MM-HH:MM\"，多个时间段用逗号分隔，如\"23:00-07:00,12:00-14:00\"）"),
+            "like_during_silent": ConfigField(type=bool, default=False,
+                                              description="在静默时间段内是否仍然点赞（true=静默时间段内仍然点赞，false=静默时间段内不点赞）"),
+            "comment_during_silent": ConfigField(type=bool, default=False,
+                                                 description="在静默时间段内是否仍然评论（true=静默时间段内仍然评论，false=静默时间段内不评论）"),
             "reply_prompt": ConfigField(type=str,
                                         default="你是'{bot_personality}'，你的好友'{nickname}'在'{created_time}'评论了你QQ空间上的一条内容为"
                                                 "'{content}'的说说，你的好友对该说说的评论为:'{comment_content}'，"
