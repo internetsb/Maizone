@@ -178,7 +178,58 @@ async def generate_image(provider: str, image_model: str, api_key: str, image_pr
 
                     # 等待5秒后再次检查
                     await asyncio.sleep(5)
+        elif provider.lower() == "volcengine":
+            # 火山引擎
+            url = "https://ark.cn-beijing.volces.com/api/v3/images/generations"
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            }
+            data = {
+                "model": image_model,
+                "prompt": image_prompt,
+                "watermark": False,
+            }
+            if image_size is not None:
+                data["size"] = image_size
 
+            # 查找参考图片
+            ref_images = list(Path(image_dir).glob("done_ref.*"))
+            if ref_images and config_api.get_plugin_config(plugin_config, "models.image_ref", False):
+                image = Image.open(ref_images[0])
+                data["image"] = encode_file(image)
+
+            async with httpx.AsyncClient() as client:
+                # 发送请求
+                res = await client.post(url, headers=headers, json=data, timeout=60.0)
+                if res.status_code != 200:
+                    logger.error(f'生成图片出错，错误码[{res.status_code}]')
+                    logger.error(f'错误响应: {res.text}')
+                    return False
+                json_data = res.json()
+                image_urls = [img["url"] for img in json_data["data"]]
+
+                # 确保目录存在
+                Path(image_dir).mkdir(parents=True, exist_ok=True)
+
+                # 下载并保存图片
+                for i, img_url in enumerate(image_urls):
+                    try:
+                        # 下载图片
+                        img_response = await client.get(img_url, timeout=60.0)
+                        img_response.raise_for_status()
+
+                        filename = f"ve_{i}.png"
+                        save_path = Path(image_dir) / filename
+
+                        # 处理图片
+                        image = Image.open(BytesIO(img_response.content))
+                        image.save(save_path)
+                        logger.info(f"图片已保存至: {save_path}")
+
+                    except Exception as e:
+                        logger.error(f"下载图片失败: {str(e)}")
+                        return False
         else:
             logger.error(f"不支持的图片生成服务提供商: {provider}")
             return False
