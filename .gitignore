@@ -1,0 +1,9 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Config & Data Files
+config.toml
+processed_list.json
+cookies-*.json
