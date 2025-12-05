@@ -34,21 +34,32 @@ Maizone（麦麦空间）插件v2.4.9，让你的麦麦发说说，读QQ空间�
 
 2. 将`Maizone\`文件夹放入`MaiBot\plugins`文件夹下（路径中不要含有标点符号，中文字符）
 
-3. 安装相应依赖(部分依赖MaiBot已安装)，示例：
+3. 根据部署方式安装相应依赖，示例：
 
-   ```bash
-   #pip安装，在MaiBot文件夹下
-   .\venv\Scripts\activate
-   cd .\plugins\Maizone\
-   pip install -i https://mirrors.aliyun.com/pypi/simple -r .\requirements.txt --upgrade
-   #uv安装，在plugins\Maizone文件夹下
-   uv pip install -r .\requirements.txt -i https://mirrors.aliyun.com/pypi/simple --upgrade
-   #一键包用户可在启动时选择交互式安装pip模块，安装bs4和json5
-   #docker安装，宿主机内
-   docker exec -it maim-bot-core uv pip install bs4 json5 --system
-   ```
+   - 一键包安装：在启动时选择交互式安装pip模块，安装bs4和json5
 
-4. 启动一次麦麦自动生成`config.toml`配置文件，成功生成配置文件即说明读取插件成功（未生成配置文件请检查启动麦麦时的加载插件日志）
+   - docker部署安装：宿主机内
+
+     ```bash
+     docker exec -it maim-bot-core uv pip install bs4 json5 --system
+     ```
+
+   - uv安装：在plugins\Maizone文件夹下
+
+     ```bash
+     uv pip install -r .\requirements.txt -i https://mirrors.aliyun.com/pypi/simple --upgrade
+     ```
+
+   - pip安装：在MaiBot文件夹下
+
+     ```bash
+     #pip安装，在MaiBot文件夹下
+     .\venv\Scripts\activate
+     cd .\plugins\Maizone\
+     pip install -i https://mirrors.aliyun.com/pypi/simple -r .\requirements.txt --upgrade
+     ```
+
+     启动一次麦麦自动生成`config.toml`配置文件，成功生成配置文件即说明读取插件成功（未生成配置文件请检查启动麦麦时的加载插件日志）
 
 ### 设置Napcat http服务器端口以获取cookie
 
@@ -135,6 +146,10 @@ Maizone（麦麦空间）插件v2.4.9，让你的麦麦发说说，读QQ空间�
 - **Q：No module named 'plugins.Maizone-2'**/**'No module named 'plugins.internetsb'**
 
   **A：'.'导致被错误地识别为了包，请重命名文件夹为Maizone，不要含有标点符号及中文字符**
+
+- **Q：提示词为空，无法正常回复/回复“你好，我能为你做什么？”...**
+
+  **A：版本更新导致的bug（我很抱歉），请删除config.toml重新生成**
 
 - **Q：我发了一条说说，但bot没有回复**
 
