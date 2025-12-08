@@ -77,7 +77,9 @@ class SendFeedCommand(BaseCommand):
             logger.error(f"更新cookies失败: {str(e)}")
             return False, "更新cookies失败", True
         qzone = create_qzone_api()
-        prompt_pre = self.get_config("send.prompt", "")
+        prompt_pre = self.get_config("send.prompt", "你是'{bot_personality}'，现在是'{current_time}'你想写一条主题是'{topic}'的说说发表在qq空间上，"
+                                          "{bot_expression}，不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，可以适当使用颜文字，只输出一条说说正文的内容，不要输出多余内容"
+                                          "(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )")
         if topic:
             data = {
                 "current_time": current_time,

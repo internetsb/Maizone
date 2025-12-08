@@ -137,7 +137,9 @@ class SendFeedAction(BaseAction):
         # 创建qzone_api实例
         qzone = create_qzone_api()
 
-        prompt_pre = self.get_config("send.prompt", "")
+        prompt_pre = self.get_config("send.prompt", "你是'{bot_personality}'，现在是'{current_time}'你想写一条主题是'{topic}'的说说发表在qq空间上，"
+                                          "{bot_expression}，不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，可以适当使用颜文字，只输出一条说说正文的内容，不要输出多余内容"
+                                          "(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )")
         data = {
             "current_time": current_time,
             "bot_personality": bot_personality,
@@ -332,7 +334,11 @@ class ReadFeedAction(BaseAction):
             if random.random() <= comment_possibility:
                 #评论说说
                 if not rt_con:
-                    prompt_pre = self.get_config("read.prompt", "")
+                    prompt_pre = self.get_config("read.prompt", "你是'{bot_personality}'，你正在浏览你好友'{target_name}'的QQ空间，你看到了你的好友'{target_name}'"
+                                          "在qq空间上在'{created_time}'发了一条内容是'{content}'的说说，你想要发表你的一条评论，现在是'{current_time}'"
+                                          "你对'{target_name}'的印象是'{impression}'，若与你的印象点相关，可以适当评论相关内容，无关则忽略此印象，"
+                                          "{bot_expression}，回复的平淡一些，简短一些，说中文，不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，不要输出多余内容"
+                                          "(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。只输出回复内容")
                     data = {
                         "current_time": current_time,
                         "created_time": feed['created_time'],
@@ -344,7 +350,12 @@ class ReadFeedAction(BaseAction):
                     }
                     prompt = prompt_pre.format(**data)
                 else:
-                    prompt_pre = self.get_config("read.rt_prompt", "")
+                    prompt_pre = self.get_config("read.rt_prompt", "你是'{bot_personality}'，你正在浏览你好友'{target_name}'的QQ空间，你看到了你的好友'{target_name}'"
+                                             "在qq空间上在'{created_time}'转发了一条内容为'{rt_con}'的说说，你的好友的评论为'{content}'，你对'{" 
+                                             "target_name}'的印象是'{impression}'，若与你的印象点相关，可以适当评论相关内容，无关则忽略此印象，"
+                                             "现在是'{current_time}'，你想要发表你的一条评论，{bot_expression}，"
+                                             "回复的平淡一些，简短一些，说中文，不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，"
+                                             "不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。只输出回复内容")
                     data = {
                         "current_time": current_time,
                         "created_time": feed['created_time'],
@@ -388,6 +399,10 @@ class ReadFeedAction(BaseAction):
                     return False, "点赞说说失败"
                 logger.info(f"点赞说说'{content[:10]}..'成功")
             processed_list[fid] = []
+            # 为防止字典无限增长，限制字典大小
+            while len(processed_list) > self.get_config("monitor.processed_feeds_cache_size", 100):
+                oldest_fid = next(iter(processed_list))
+                processed_list.pop(oldest_fid)
         _save_processed_list(processed_list)
         if not await reply_send(self, self.chat_stream, f'你刚刚成功读了以下说说：{feeds_list}'):
             return False, "生成回复失败"

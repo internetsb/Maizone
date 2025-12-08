@@ -15,7 +15,6 @@ class MaizonePlugin(BasePlugin):
     """Maizone插件 - 让麦麦发QQ空间"""
     plugin_name = "MaizonePlugin"
     plugin_description = "让麦麦实现QQ空间点赞、评论、发说说"
-    plugin_version = "2.4.7"
     plugin_author = "internetsb"
     enable_plugin = True
     config_file_name = "config.toml"
@@ -124,6 +123,14 @@ class MaizonePlugin(BasePlugin):
                                               description="在静默时间段内是否仍然点赞（true=静默时间段内仍然点赞，false=静默时间段内不点赞）"),
             "comment_during_silent": ConfigField(type=bool, default=False,
                                                  description="在静默时间段内是否仍然评论（true=静默时间段内仍然评论，false=静默时间段内不评论）"),
+            "like_possibility": ConfigField(type=float, default=1.0, 
+                                          description="定时任务读说说后点赞的概率（0到1）"),
+            "comment_possibility": ConfigField(type=float, default=1.0, 
+                                            description="定时任务读说说后评论的概率（0到1）"),
+            "processed_comments_cache_size": ConfigField(type=int, default=100,
+                                                        description="已处理评论缓存的最大大小，与对评论的回复有关"),
+            "processed_feeds_cache_size": ConfigField(type=int, default=100,
+                                                      description="已处理说说数据的最大大小，与对说说的评论有关"),
             "reply_prompt": ConfigField(type=str,
                                         default="你是'{bot_personality}'，你的好友'{nickname}'在'{created_time}'评论了你QQ空间上的一条内容为"
                                                 "'{content}'的说说，你的好友对该说说的评论为:'{comment_content}'，"
@@ -140,7 +147,7 @@ class MaizonePlugin(BasePlugin):
             "enable_schedule": ConfigField(type=bool, default=False, description="是否启用定时发送说说"),
             "probability": ConfigField(type=float, default=1.0, description="每天发送说说的概率"),
             "schedule_times": ConfigField(type=list, default=["08:00", "20:00"],
-                                          description="定时发送时间列表，按照示例添加修改"),
+                                          description="定时发送时间列表，按照示例添加或修改"),
             "fluctuation_minutes": ConfigField(type=int, default=0,
                                                description="发送时间上下浮动范围（分钟），0表示不浮动"),
             "random_topic": ConfigField(type=bool, default=True,

@@ -6,4 +6,5 @@ __pycache__/
 # Config & Data Files
 config.toml
 processed_list.json
+processed_comments.json
 cookies-*.json
