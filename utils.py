@@ -33,12 +33,12 @@ def encode_file(img):
 async def generate_image(provider: str, image_model: str, api_key: str, image_prompt: str, image_dir: str,
                          batch_size: int = 1, image_size: str = None) -> bool:
     """
-    用ModelScope或SiliconFlow API生成说说配图保存至对应路径
+    生成说说配图保存至对应路径
 
     Args:
-        provider (str): 图片生成服务提供商，支持 "ModelScope" 或 "SiliconFlow"。
+        provider (str): 图片生成服务提供商，支持 "ModelScope" 或 "SiliconFlow"或"volcengine"。
         image_model (str): 使用的图片生成模型名称。
-        api_key (str): ModelScope 或 SiliconFlow API密钥。
+        api_key (str): API密钥。
         image_prompt (str): 说说内容，用于生成配图的描述。
         image_dir (str): 图片保存的目录路径。
         batch_size (int): 每次生成的图片数量，默认为1(Qwen不支持)。
