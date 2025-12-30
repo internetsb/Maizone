@@ -320,7 +320,7 @@ class ReadFeedAction(BaseAction):
         #时间
         current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # 获取当前时间
         #逐条点赞回复
-        processed_list = _load_processed_list()
+        processed_list = await _load_processed_list()
         for feed in feeds_list:
             if feed["tid"] in processed_list:
                 continue
@@ -403,7 +403,7 @@ class ReadFeedAction(BaseAction):
             while len(processed_list) > self.get_config("monitor.processed_feeds_cache_size", 100):
                 oldest_fid = next(iter(processed_list))
                 processed_list.pop(oldest_fid)
-        _save_processed_list(processed_list)
+        await _save_processed_list(processed_list)
         if not await reply_send(self, self.chat_stream, f'你刚刚成功读了以下说说：{feeds_list}'):
             return False, "生成回复失败"
         await self.store_action_info(

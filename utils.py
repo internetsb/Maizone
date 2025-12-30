@@ -9,6 +9,7 @@ from io import BytesIO
 from PIL import Image
 from pathlib import Path
 from typing import List, Dict
+import functools
 
 import httpx
 
@@ -20,6 +21,52 @@ from .qzone_api import create_qzone_api
 logger = get_logger('Maizone.组件')
 
 
+def retry(max_retries=3, delay=1, check_result=False):
+    """
+    重试装饰器
+    :param max_retries: 最大重试次数
+    :param delay: 重试间隔时间（秒）
+    :param check_result: 是否检查函数返回值，若为True，则当函数返回False时进行重试
+    """
+    def decorator(func):
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            last_exception = None
+            
+            for attempt in range(max_retries):
+                try:
+                    result = await func(*args, **kwargs)
+                    
+                    # 如果需要检查返回值，并且返回值为False，则继续重试
+                    if check_result and result is False:
+                        logger.warning(f"函数 {func.__name__} 返回 False，第 {attempt + 1} 次尝试，{delay} 秒后重试...")
+                        if attempt < max_retries - 1:  # 不是最后一次尝试
+                            await asyncio.sleep(delay)
+                        continue  # 继续下一次重试
+                    
+                    # 函数正常执行完毕且返回值不是False，则直接返回结果
+                    return result
+                    
+                except Exception as e:
+                    last_exception = e
+                    if attempt < max_retries - 1:  # 不是最后一次尝试
+                        logger.warning(f"函数 {func.__name__} 执行失败，第 {attempt + 1} 次尝试，{delay} 秒后重试... 错误: {str(e)}")
+                        await asyncio.sleep(delay)
+                    else:
+                        logger.error(f"函数 {func.__name__} 经过 {max_retries} 次重试后仍然失败。错误: {str(e)}")
+            
+            # 如果是由于异常导致的重试失败，则抛出异常
+            if last_exception is not None:
+                raise last_exception
+            # 如果是由于返回值为False导致的重试失败，也抛出一个异常
+            elif check_result:
+                raise RuntimeError(f"函数 {func.__name__} 经过 {max_retries} 次调用，返回值均为 False")
+            # 如果函数执行成功且没有异常，但是因为返回值是False导致的退出循环，抛出运行时错误
+            else:
+                raise RuntimeError(f"函数 {func.__name__} 在执行过程中发生未知错误")
+        return wrapper
+    return decorator
+
 def encode_file(img):
     """将PIL.Image对象编码为base64 data URL"""
     form = (img.format or "PNG").upper()
@@ -30,6 +77,7 @@ def encode_file(img):
     encoded_string = base64.b64encode(byte_data).decode("utf-8")
     return f"data:{mime_type};base64,{encoded_string}"
 
+@retry(max_retries=3, delay=2, check_result=True)
 async def generate_image(provider: str, image_model: str, api_key: str, image_prompt: str, image_dir: str,
                          batch_size: int = 1, image_size: str = None) -> bool:
     """

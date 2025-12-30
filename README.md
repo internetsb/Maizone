@@ -104,7 +104,7 @@ Maizone（麦麦空间）插件v2.4.10，让你的麦麦发说说，读QQ空间�
 1. 注册登录ModelScope或SiliconFlow或火山引擎，获取访问令牌/APIkey
 2. 从模型库中选择文生图（若开启参考图则选择图生图）标签的模型，复制名称
 3. 填写至config.toml的models栏
-4. （可选）若有bot的人设图或者头像之类的，保存图片并命名为"done_ref.xxx"（xxx可为jpg,png等等）放入插件的images目录下，修改config.toml的image_ref为true，即可尝试让ai参考该图来生成图片（需要图生图模型）（效果不尽人意，重点应放在提示词）
+4. （可选）若有bot的人设图或者头像之类的，保存图片并命名为"done_ref.xxx"（xxx可为jpg,png等等）放入插件的images目录下，修改config.toml的image_ref为true，即可尝试让ai参考该图来生成图片（需要图生图模型）（请注意，ModelScope图生图暂不可用）
 
    若要使用其余模型及供应商，自行修改utils.py中的generate_image函数，将生成的图片保存至image_dir即可
 

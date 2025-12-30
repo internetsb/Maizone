@@ -8,3 +8,4 @@ config.toml
 processed_list.json
 processed_comments.json
 cookies-*.json
+images/*

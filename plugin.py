@@ -41,9 +41,9 @@ class MaizonePlugin(BasePlugin):
         "models": {
             "text_model": ConfigField(type=str, default="replyer",
                                       description="生成文本的模型（从麦麦model_config读取），默认即可"),
-            "image_provider": ConfigField(type=str, default="ModelScope",
+            "image_provider": ConfigField(type=str, default="volcengine",
                                           description="图片生成服务提供商（默认支持ModelScope或SiliconFlow或volcengine）"),
-            "image_model": ConfigField(type=str, default="Qwen/Qwen-Image-Edit",
+            "image_model": ConfigField(type=str, default="doubao-seedream-4-5-251128",
                                        description="图片生成模型（从对应服务商官网获取）"),
             "image_ref": ConfigField(type=bool, default=False,
                                      description="是否启用人设参考图（请重命名为done_ref，图片后缀不变，放入images文件夹）"),

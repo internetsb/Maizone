@@ -17,6 +17,10 @@ from .utils import monitor_read_feed, reply_feed, comment_feed, like_feed, send_
 
 logger = get_logger("Maizone.定时任务")
 
+# 添加文件读写锁
+_processed_list_lock = asyncio.Lock()
+_processed_comments_lock = asyncio.Lock()
+
 
 def _is_in_silent_period(silent_hours_config: str, like_during_silent: bool = False, comment_during_silent: bool = False) -> tuple[bool, bool, bool]:
     """
@@ -108,58 +112,62 @@ def _parse_time_to_minutes(time_str: str) -> int:
 
 
 # ===== 定时任务功能 =====
-def _save_processed_list(processed_list: Dict[str, List[str]]):
+async def _save_processed_list(processed_list: Dict[str, List[str]]):
     """保存已处理说说及评论字典到文件"""
-    try:
-        file_path = str(Path(__file__).parent.resolve() / "processed_list.json")
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(processed_list, f, ensure_ascii=False, indent=2)
-            logger.debug("已保存已处理说说列表")
-    except Exception as e:
-        logger.error(f"保存已处理说说失败: {str(e)}")
+    async with _processed_list_lock:
+        try:
+            file_path = str(Path(__file__).parent.resolve() / "processed_list.json")
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(processed_list, f, ensure_ascii=False, indent=2)
+                logger.debug("已保存已处理说说列表")
+        except Exception as e:
+            logger.error(f"保存已处理说说失败: {str(e)}")
 
 
-def _load_processed_list() -> Dict[str, List[str]]:
+async def _load_processed_list() -> Dict[str, List[str]]:
     """从文件加载已处理说说及评论字典"""
-    file_path = str(Path(__file__).parent.resolve() / "processed_list.json")
+    async with _processed_list_lock:
+        file_path = str(Path(__file__).parent.resolve() / "processed_list.json")
 
-    if os.path.exists(file_path):
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                logger.debug("正在加载已处理说说列表")
-                return json.load(f)
-        except Exception as e:
-            logger.error(f"加载已处理说说失败: {str(e)}")
-            return {}
-    logger.warning("未找到已处理说说列表，将创建新列表")
-    return {}
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    logger.debug("正在加载已处理说说列表")
+                    return json.load(f)
+            except Exception as e:
+                logger.error(f"加载已处理说说失败: {str(e)}")
+                return {}
+        logger.warning("未找到已处理说说列表，将创建新列表")
+        return {}
 
 
-def _save_processed_comments(processed_comments: Dict[str, List[str]]):
+async def _save_processed_comments(processed_comments: Dict[str, List[str]]):
     """保存已处理评论到独立的文件"""
-    try:
-        file_path = str(Path(__file__).parent.resolve() / "processed_comments.json")
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(processed_comments, f, ensure_ascii=False, indent=2)
-            logger.debug("已保存已处理评论列表")
-    except Exception as e:
-        logger.error(f"保存已处理评论失败: {str(e)}")
-
-
-def _load_processed_comments() -> Dict[str, List[str]]:
-    """从文件加载已处理评论字典"""
-    file_path = str(Path(__file__).parent.resolve() / "processed_comments.json")
-
-    if os.path.exists(file_path):
+    async with _processed_comments_lock:
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                logger.debug("正在加载已处理评论列表")
-                return json.load(f)
+            file_path = str(Path(__file__).parent.resolve() / "processed_comments.json")
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(processed_comments, f, ensure_ascii=False, indent=2)
+                logger.debug("已保存已处理评论列表")
         except Exception as e:
-            logger.error(f"加载已处理评论失败: {str(e)}")
-            return {}
-    logger.warning("未找到已处理评论列表，将创建新列表")
-    return {}
+            logger.error(f"保存已处理评论失败: {str(e)}")
+
+
+async def _load_processed_comments() -> Dict[str, List[str]]:
+    """从文件加载已处理评论字典"""
+    async with _processed_comments_lock:
+        file_path = str(Path(__file__).parent.resolve() / "processed_comments.json")
+
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    logger.debug("正在加载已处理评论列表")
+                    return json.load(f)
+            except Exception as e:
+                logger.error(f"加载已处理评论失败: {str(e)}")
+                return {}
+        logger.warning("未找到已处理评论列表，将创建新列表")
+        return {}
 
 
 class FeedMonitor:
@@ -197,8 +205,8 @@ class FeedMonitor:
         # 获取配置
         interval = self.plugin.get_config("monitor.interval_minutes", 5)
         # 记录已处理评论，说说id映射已处理评论列表
-        processed_list = _load_processed_list()
-        processed_comments = _load_processed_comments()
+        processed_list = await _load_processed_list()
+        processed_comments = await _load_processed_comments()
         while self.is_running:
             try:
                 # 等待指定时间
@@ -206,16 +214,16 @@ class FeedMonitor:
                 # 执行监控任务
                 await self.check_feeds(processed_list, processed_comments)
                 # 保存已处理评论到文件
-                _save_processed_list(processed_list)
-                _save_processed_comments(processed_comments)
+                await _save_processed_list(processed_list)
+                await _save_processed_comments(processed_comments)
             except asyncio.CancelledError:
-                _save_processed_list(processed_list)
-                _save_processed_comments(processed_comments)
+                await _save_processed_list(processed_list)
+                await _save_processed_comments(processed_comments)
                 break
             except Exception as e:
                 logger.error(f"监控任务出错: {str(e)}")
-                _save_processed_list(processed_list)
-                _save_processed_comments(processed_comments)
+                await _save_processed_list(processed_list)
+                await _save_processed_comments(processed_comments)
                 traceback.print_exc()
                 # 出错后等待一段时间再重试
                 await asyncio.sleep(300)
@@ -439,7 +447,7 @@ class FeedMonitor:
                     # 为防止字典无限增长，限制字典大小
                     oldest_fid = next(iter(processed_list))
                     processed_list.pop(oldest_fid)
-                _save_processed_list(processed_list)  # 每处理一条说说即保存
+                await _save_processed_list(processed_list)  # 每处理一条说说即保存
             return True, 'success'
         except Exception as e:
             logger.error(f"点赞评论失败: {str(e)}")
