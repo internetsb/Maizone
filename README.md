@@ -4,11 +4,15 @@
 >
 > 为了您的安全，请设置Token。操作方法：在设置http服务器时面板最下方的Token栏中填入密码，在生成的config.toml文件中填写该密码
 
-*制作者水平稀烂，任何疑问或bug或建议请联系qq：1523640161*
+*制作者水平有限，任何漏洞、疑问或建议欢迎提出issue或联系qq：1523640161*
 
 ## 概述
 
-Maizone（麦麦空间）插件v2.4.11，让你的麦麦发说说，读QQ空间，点赞评论！
+Maizone（麦麦空间）插件v2.4.12，让你的麦麦发说说，读QQ空间，点赞评论！
+
+效果展示：
+
+<img src="images/done_show.png" style="zoom:50%;" />
 
 ## 功能
 
@@ -28,29 +32,36 @@ Maizone（麦麦空间）插件v2.4.11，让你的麦麦发说说，读QQ空间�
    ```bash
    git clone https://github.com/internetsb/Maizone.git
    ```
+   
 2. 将 `Maizone\`文件夹放入 `MaiBot\plugins`文件夹下（路径中不要含有标点符号，中文字符）
+
 3. 根据部署方式安装相应依赖，示例：
 
-   - 一键包安装：在启动时选择交互式安装pip模块，安装bs4和json5
+   - 一键包安装：在`![[点我启动!!!`后出现的菜单中选择交互式安装pip模块，按模块名安装bs4和json5
+   
    - docker部署安装：宿主机内
-
+   
      ```bash
      docker exec -it maim-bot-core uv pip install bs4 json5 --system
      ```
+     
+     您可能需要修改docker-compose.yaml以持久化python包
+     
    - uv安装：在plugins\Maizone文件夹下
-
+   
      ```bash
      uv pip install -r .\requirements.txt -i https://mirrors.aliyun.com/pypi/simple --upgrade
      ```
+     
    - pip安装：在MaiBot文件夹下
-
+   
      ```bash
      #pip安装，在MaiBot文件夹下
      .\venv\Scripts\activate
      cd .\plugins\Maizone\
      pip install -i https://mirrors.aliyun.com/pypi/simple -r .\requirements.txt --upgrade
      ```
-
+   
      启动一次麦麦自动生成 `config.toml`配置文件，成功生成配置文件即说明读取插件成功（未生成配置文件请检查启动麦麦时的加载插件日志）
 
 ### 设置Napcat http服务器端口以获取cookie
@@ -112,7 +123,7 @@ Maizone（麦麦空间）插件v2.4.11，让你的麦麦发说说，读QQ空间�
 
 **配置权限**：在config.toml中分别填写上send和read模块中的权限名单和类型
 
-**发说说**：向麦麦发送命令：`/send_feed` 或说 “发条说说吧”/“发一条你今天心情的说说” 正常情况下，等待几秒后麦麦将发送一条相应主题的说说至QQ空间
+**发说说**：向麦麦发送命令：`/send_feed` 或自然语言 “发条说说吧”/“发一条xxx的说说” 正常情况下，等待几秒后麦麦将发送一条相应主题的说说至QQ空间
 
 **读说说**：对麦麦说：“读一下我的QQ空间”/“评价一下@xxx的空间”，麦麦将会对其近几条评论进行点赞评论
 
@@ -127,24 +138,30 @@ Maizone（麦麦空间）插件v2.4.11，让你的麦麦发说说，读QQ空间�
 - **Q：所有功能都失败爆红**
 
   **A：请检查是否生成cookie，cookie名称与内容中的qq号是否正确，MaiBot/config/bot_config.toml中qq_account是否填写正确**
+  
 - **Q：No module named 'bs4'**
 
   **A：安装依赖失败，请确保在MaiBot运行的环境下，按照安装麦麦时的方法，选择恰当的给出的方式安装依赖**
+  
 - **Q：No module named 'plugins.Maizone-2'**/**'No module named 'plugins.internetsb'**
 
   **A：'.'导致被错误地识别为了包，请重命名文件夹为Maizone，不要含有标点符号及中文字符**
+  
 - **Q：提示词为空，无法正常回复/回复“你好，我能为你做什么？”...**
 
   **A：版本更新导致的bug（我很抱歉），请删除config.toml重新生成**
+  
 - **Q：我发了一条说说，但bot没有回复**
 
   **A：bot无法阅读相册上传、小程序分享、过早的说说，且某些说说（比如新加的好友）需要多次才能读到，具体读取情况以日志为准**
-- **Q:listen EACCES: permission denied 127.0.0.1:9999**
+  
+- **Q：listen EACCES: permission denied 127.0.0.1:9999**
 
   **A：可能为端口9999被占用，可选择更换为其它端口，并修改相应配置**
+  
 - **Q：如何更改使用的模型配置**
 
-  **A：请查看MaiBot/config/model_config.toml，默认使用**
+  **A：请查看MaiBot/config/model_config.toml，默认使用replyer**
 
   ```
   [model_task_config.replyer] # 首要回复模型，还用于表达器和表达方式学习
@@ -154,7 +171,14 @@ Maizone（麦麦空间）插件v2.4.11，让你的麦麦发说说，读QQ空间�
   ```
 
   **可更换为配置的utils、utils_small、tool_use等模型，模型列表配置参看MaiBot文档**
+  
 - **其余问题请联系作者修复或解决（部分好友请求可能被过滤导致回复不及时，请见谅）**
+
+## 已知问题
+
+- 可能出现对同一条说说重复评论，或对同一条评论重复回复的问题，欢迎提供出现问题时的日志
+- 当前解析说说附带的视频时仅解析了视频封面
+- 当前对评论进行回复时仅使用了评论+@的方式而非通常的子评论
 
 ## 鸣谢
 

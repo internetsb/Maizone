@@ -391,8 +391,10 @@ async def send_feed(message: str,
         Exception: 如果在发送过程中发生错误，将记录日志并返回False。
     """
     qzone = create_qzone_api()
-
-    images = []
+    plugin_config = component_registry.get_plugin_config('MaizonePlugin')
+    images = []  # 图片列表
+    done_paths = []  # 已处理的图片路径
+    clear_image = config_api.get_plugin_config(plugin_config, "models.clear_image", True)  # 是否清理图片
     if not enable_image:
         # 如果未启用图片功能，直接发送纯文本
         try:
@@ -422,7 +424,6 @@ async def send_feed(message: str,
     # 获取图片
     if use_ai:
         # 使用AI生成图片
-        plugin_config = component_registry.get_plugin_config('MaizonePlugin')
         if api_key := config_api.get_plugin_config(plugin_config, "models.api_key", ""):
             models = llm_api.get_available_models()
             prompt_model = config_api.get_plugin_config(plugin_config, "models.text_model", "replyer")  # 获取模型配置
@@ -486,6 +487,7 @@ async def send_feed(message: str,
                     new_filename = f"done_{timestamp}_{image_file}"
                     new_path = os.path.join(image_directory, new_filename)
                     os.rename(full_path, new_path)
+                    done_paths.append(new_path)  # 记录处理完成的图片路径
             else:
                 logger.error("AI图片生成失败")
                 return False
@@ -504,6 +506,10 @@ async def send_feed(message: str,
     try:
         tid = await qzone.publish_emotion(message, images)
         logger.info(f"成功发送说说，tid: {tid}")
+        if clear_image and done_paths:
+            for path in done_paths:
+                os.remove(path)
+                logger.info(f"已删除图片: {path}")
         return True
     except Exception as e:
         logger.error("发送说说失败")

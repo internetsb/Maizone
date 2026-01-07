@@ -119,7 +119,7 @@ async def _save_processed_list(processed_list: Dict[str, List[str]]):
             file_path = str(Path(__file__).parent.resolve() / "processed_list.json")
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(processed_list, f, ensure_ascii=False, indent=2)
-                logger.debug("已保存已处理说说列表")
+                logger.debug(f"已保存已处理说说列表，内容: {processed_list}")
         except Exception as e:
             logger.error(f"保存已处理说说失败: {str(e)}")
 
@@ -132,8 +132,9 @@ async def _load_processed_list() -> Dict[str, List[str]]:
         if os.path.exists(file_path):
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
-                    logger.debug("正在加载已处理说说列表")
-                    return json.load(f)
+                    loaded_data = json.load(f)
+                    logger.debug(f"正在加载已处理说说列表，内容: {loaded_data}")
+                    return loaded_data
             except Exception as e:
                 logger.error(f"加载已处理说说失败: {str(e)}")
                 return {}
@@ -148,7 +149,7 @@ async def _save_processed_comments(processed_comments: Dict[str, List[str]]):
             file_path = str(Path(__file__).parent.resolve() / "processed_comments.json")
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(processed_comments, f, ensure_ascii=False, indent=2)
-                logger.debug("已保存已处理评论列表")
+                logger.debug(f"已保存已处理评论列表，内容: {processed_comments}")
         except Exception as e:
             logger.error(f"保存已处理评论失败: {str(e)}")
 
@@ -161,8 +162,9 @@ async def _load_processed_comments() -> Dict[str, List[str]]:
         if os.path.exists(file_path):
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
-                    logger.debug("正在加载已处理评论列表")
-                    return json.load(f)
+                    loaded_data = json.load(f)
+                    logger.debug(f"正在加载已处理评论列表，内容: {loaded_data}")
+                    return loaded_data
             except Exception as e:
                 logger.error(f"加载已处理评论失败: {str(e)}")
                 return {}
