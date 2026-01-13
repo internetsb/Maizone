@@ -4,7 +4,8 @@ __pycache__/
 *$py.class
 
 # Config & Data Files
-config.toml
+test*
+config.*
 processed_list.json
 processed_comments.json
 cookies-*.json

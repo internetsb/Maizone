@@ -33,14 +33,14 @@ class MaizonePlugin(BasePlugin):
     config_schema = {
         "plugin": {
             "enable": ConfigField(type=bool, default=True, description="是否启用插件"),
-            "http_host": ConfigField(type=str, default='127.0.0.1', description="Napcat设定http服务器地址"),
-            "http_port": ConfigField(type=str, default='9999', description="Napcat设定http服务器端口号"),
+            "http_host": ConfigField(type=str, default='127.0.0.1', description="Napcat http服务器地址"),
+            "http_port": ConfigField(type=str, default='9999', description="Napcat http服务器端口号"),
             "napcat_token": ConfigField(type=str, default="", description="Napcat服务认证Token"),
             "cookie_methods": ConfigField(type=list, default=['napcat', 'clientkey', 'qrcode', 'local', ], description="获取Cookie的方法，顺序尝试，可选napcat,clientkey,qrcode,local"),
         },
         "send": {
             "permission": ConfigField(type=list, default=['114514', '1919810', '1523640161'],
-                                      description="权限QQ号列表（请以相同格式添加）"),
+                                      description="权限QQ号列表"),
             "permission_type": ConfigField(type=str, default='whitelist',
                                            description="whitelist:在列表中的QQ号有权限，blacklist:在列表中的QQ号无权限"),
             "enable_image": ConfigField(type=bool, default=False, description="是否启用带图片的说说（可能需要配置模型）"),
@@ -57,10 +57,13 @@ class MaizonePlugin(BasePlugin):
                                           "(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )",
                                   description="生成说说的提示词，占位符包括{current_time}（当前时间），{bot_personality}（人格），{topic}（说说主题），{"
                                               "bot_expression}（表达方式）"),
+            "custom_qqaccount": ConfigField(type=str, default="",
+                                            description="主题为custom时，使用与该QQ账号的最新私聊内容作为说说内容来源（会屏蔽'/'开头的命令）"),
+            "custom_only_mai": ConfigField(type=bool, default=True, description="custom模式是否使用bot所说内容（True：custom选用bot说的最新内容，False：custom选用bot私聊对象说的最新内容）"),
         },
         "read": {
             "permission": ConfigField(type=list, default=['114514', '1919810', ],
-                                      description="权限QQ号列表（请以相同格式添加）"),
+                                      description="权限QQ号列表"),
             "permission_type": ConfigField(type=str, default='blacklist',
                                            description="whitelist:在列表中的QQ号有权限，blacklist:在列表中的QQ号无权限"),
             "read_number": ConfigField(type=int, default=5, description="一次读取最新的几条说说"),
@@ -141,11 +144,19 @@ class MaizonePlugin(BasePlugin):
                                                  "提升幸福感的小物", "圣诞氛围感", "冬日限定快乐", "灵感碎片",
                                                  "艺术启蒙", "色彩美学", "每日一诗", "哲学小谈", "存在主义咖啡馆",
                                                  "艺术史趣闻", "审美积累", "现代主义漫步", "东方美学"],
-                                        description="固定主题列表（当random_topic为False时从中随机选择）"),
+                                        description="固定主题列表（当random_topic为False时从中随机选择，其中'custom'为bot私聊最新内容）"),
         },
         "models": {
             "text_model": ConfigField(type=str, default="replyer",
                                       description="生成文本的模型（从麦麦model_config读取），默认即可"),
+            # 不使用自定义模型
+            # "custom_text_model": ConfigField(type=bool, default=False,  description="是否使用自定义生成文本的模型（OpenAI格式）"),
+            # "custom_base_url": ConfigField(type=str, default="",
+            #                                description="自定义模型提供商的Base URL（custom_text_model为True时生效）"),
+            # "custom_api_key": ConfigField(type=str, default="",
+            #                               description="自定义模型提供商的API密钥（custom_text_model为True时生效）"),
+            # "custom_model_name": ConfigField(type=str, default="",
+            #                                  description="自定义模型名称（custom_text_model为True时生效）"),
             "image_provider": ConfigField(type=str, default="volcengine",
                                           description="图片生成服务提供商（默认支持ModelScope或SiliconFlow或volcengine）"),
             "image_model": ConfigField(type=str, default="doubao-seedream-4-5-251128",

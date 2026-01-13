@@ -1,5 +1,6 @@
 import base64
 import datetime
+import time
 import json
 import os
 import random
@@ -14,7 +15,7 @@ import functools
 import httpx
 
 from src.common.logger import get_logger
-from src.plugin_system.apis import llm_api, config_api, emoji_api
+from src.plugin_system.apis import llm_api, config_api, emoji_api, message_api, chat_api
 from src.plugin_system.core import component_registry
 from .qzone_api import create_qzone_api
 
@@ -98,7 +99,7 @@ async def generate_image(provider: str, image_model: str, api_key: str, image_pr
     """
     # 生成图片
     plugin_config = component_registry.get_plugin_config('MaizonePlugin')
-    logger.info(f"将使用{provider}-{image_model}模型生成图片...")
+    logger.info(f"将使用{provider}的{image_model}模型生成图片...")
     try:
         if provider.lower() == "siliconflow":
             # SiliconFlow API
@@ -374,10 +375,10 @@ async def send_feed(message: str,
                     image_number: int = 1,
                     ) -> bool:
     """
-    发送说说及图片目录下的所有未处理图片。
+    根据说说及配置生成图片，发送说说及图片目录下的所有未处理图片。
 
     Args:
-        message (str): 要发送的说说内容。
+        message (str): 要发送的说说内容。为"custom"时内部改写为个人私聊最新内容
         image_directory (str): 图片存储的目录路径。
         enable_image (bool): 是否启用图片功能。
         image_mode (str): 图片模式，可选值为 "only_ai", "only_emoji", "random"。
@@ -395,6 +396,39 @@ async def send_feed(message: str,
     images = []  # 图片列表
     done_paths = []  # 已处理的图片路径
     clear_image = config_api.get_plugin_config(plugin_config, "models.clear_image", True)  # 是否清理图片
+
+    if message == "custom":
+        # message为"custom"时重写message
+        uin = config_api.get_plugin_config(plugin_config, "send.custom_qqaccount", "")
+        if not uin:  # 未配置uin
+            logger.error("未配置custom模式自定义QQ账号，请检查配置文件")
+            return False
+        stream_id = chat_api.get_stream_by_user_id(uin, "qq").stream_id
+        message_list = message_api.get_messages_before_time_in_chat(
+            chat_id=stream_id,
+            timestamp=time.time(),
+            limit=20,
+            filter_mai=False
+        )
+        if config_api.get_plugin_config(plugin_config, "send.custom_only_mai", True):
+            # 只使用bot说的内容
+            message_list = [msg for msg in message_list if message_api.is_bot_self(msg.user_info.platform, msg.user_info.user_id)]
+        else: # 只使用私聊对象说的内容
+            message_list = [msg for msg in message_list if not message_api.is_bot_self(msg.user_info.platform, msg.user_info.user_id)]
+        if not message_list:
+            logger.error("未获取到任何私聊消息，无法发送自定义说说")
+            return False
+        # 倒序获取最新消息，跳过命令消息
+        for msg in reversed(message_list):
+            content = msg.processed_plain_text
+            if content and not content.startswith('/'):
+                message = content
+                break
+        if not message or message == "custom":
+            logger.error("私聊消息内容为空，无法发送")
+            return False
+        logger.info(f"获取到最新私聊消息内容: {message}")
+
     if not enable_image:
         # 如果未启用图片功能，直接发送纯文本
         try:
@@ -405,7 +439,6 @@ async def send_feed(message: str,
             logger.error("发送说说失败")
             logger.error(traceback.format_exc())
             return False
-
     # 验证配置有效性
     if image_mode not in ["only_ai", "only_emoji", "random"]:
         logger.error(f"无效的图片模式: {image_mode}，已默认更改为 random")

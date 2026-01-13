@@ -8,7 +8,7 @@
 
 ## 概述
 
-Maizone（麦麦空间）插件v2.4.12，让你的麦麦发说说，读QQ空间，点赞评论！
+Maizone（麦麦空间）插件v2.5.0，让你的麦麦发说说，读QQ空间，点赞评论！
 
 效果展示：
 
@@ -119,6 +119,20 @@ Maizone（麦麦空间）插件v2.4.12，让你的麦麦发说说，读QQ空间�
 
    若要使用其余模型及供应商，自行修改utils.py中的generate_image函数，将生成的图片保存至image_dir即可
 
+### （可选）自定义内容
+​        主题为'custom'时将发送与在send配置的custom_qqaccount的私聊的最新一条内容，根据配置选择为该私聊中麦麦或私聊对象的最新发言
+​        命令和定时发送可自定义说说内容，可与其余组件搭配使用
+
+- 命令：`/send_feed custom`
+- 定时发送：选用固定主题`custom`
+- 以下为使用示例：
+- 麦麦做梦：
+  1. 配置麦麦做梦：发送至私聊，勾选存储到上下文
+  2. 设置Maizone定时发送：选用固定主题`custom`，配置`custom_qqaccount`为相同私聊
+- 日记插件：（事实上，日记有qzone模式）
+  1. 使用命令生成日记
+  2. 使用命令`/send_feed custom`发送日记至qq空间
+
 ### 快速开始
 
 **配置权限**：在config.toml中分别填写上send和read模块中的权限名单和类型
@@ -135,13 +149,13 @@ Maizone（麦麦空间）插件v2.4.12，让你的麦麦发说说，读QQ空间�
 
 ## 常见问题
 
-- **Q：所有功能都失败爆红**
+- **Q：所有功能都失败爆错**
 
   **A：请检查是否生成cookie，cookie名称与内容中的qq号是否正确，MaiBot/config/bot_config.toml中qq_account是否填写正确**
   
 - **Q：No module named 'bs4'**
 
-  **A：安装依赖失败，请确保在MaiBot运行的环境下，按照安装麦麦时的方法，选择恰当的给出的方式安装依赖**
+  **A：安装依赖失败，请根据使用说明，确保在MaiBot运行的环境下，按照安装麦麦时的方法，选择恰当的给出的方式安装依赖**
   
 - **Q：No module named 'plugins.Maizone-2'**/**'No module named 'plugins.internetsb'**
 

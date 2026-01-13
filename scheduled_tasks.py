@@ -639,6 +639,15 @@ class ScheduleSender:
             prompt = prompt_pre.format(**data)
         else:
             fixed_topic = random.choice(fixed_topics)
+            # 如果主题是“custom”，则直接发送自定义内容，返回
+            if fixed_topic.lower() == "custom":
+                success = await send_feed("custom", image_dir, enable_image, image_mode, ai_probability, image_number)
+                if success:
+                    logger.info(f"定时任务成功发送说说: 自定义内容")
+                else:
+                    logger.error("定时任务发送说说失败")
+                return
+            # 主题不是“custom”
             prompt_pre = self.plugin.get_config("send.prompt", "你是'{bot_personality}'，现在是'{current_time}'你想写一条主题是'{topic}'的说说发表在qq空间上，"
                                           "{bot_expression}，不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，可以适当使用颜文字，只输出一条说说正文的内容，不要输出多余内容"
                                           "(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )")

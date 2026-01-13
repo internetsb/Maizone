@@ -80,7 +80,13 @@ class SendFeedCommand(BaseCommand):
         prompt_pre = self.get_config("send.prompt", "你是'{bot_personality}'，现在是'{current_time}'你想写一条主题是'{topic}'的说说发表在qq空间上，"
                                           "{bot_expression}，不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，可以适当使用颜文字，只输出一条说说正文的内容，不要输出多余内容"
                                           "(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )")
-        if topic:
+        if topic:  # 如果有指定主题
+            if topic.lower() == "custom":  # 自定义主题内容
+                success = await send_feed("custom", image_dir, enable_image, image_mode, ai_probability, image_number)
+                if not success:
+                    return False, "发送说说失败", True
+                await self.send_text(f"已发送说说：\n自定义内容")
+                return True, 'success', True
             data = {
                 "current_time": current_time,
                 "bot_personality": bot_personality,
@@ -88,7 +94,7 @@ class SendFeedCommand(BaseCommand):
                 "bot_expression": bot_expression
             }
             prompt = prompt_pre.format(**data)
-        else:
+        else:  # 如果没有指定主题
             data = {
                 "current_time": current_time,
                 "bot_personality": bot_personality,
