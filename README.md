@@ -21,8 +21,8 @@ Maizone（麦麦空间）插件v3.0.0测试版，让你的麦麦发说说，读Q
 
 ### 一、安装插件
 
-1.安装并启用Napcat_Adapter插件
-2.从插件商店下载、或克隆本仓库至 `MaiBot\plugins` 文件夹下
+1. 安装并启用[Napcat_Adapter](https://docs.mai-mai.org/manual/adapters/napcat.html)插件，并进行相应配置
+2. 从插件商店下载本插件、或克隆本仓库至 `MaiBot\plugins` 文件夹下
 
 ```bash
 git clone https://github.com/internetsb/Maizone.git
