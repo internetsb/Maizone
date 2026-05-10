@@ -1,295 +1,386 @@
-import base64
+"""
+utils.py
+LLM生成内容并调用底层API与QQ空间交互
+"""
+from typing import List, Dict, Tuple, Any
 import datetime
-import time
+import asyncio
 import json
 import os
 import random
-import traceback
-import asyncio
-from io import BytesIO
-from PIL import Image
 from pathlib import Path
-from typing import List, Dict
-import functools
 
-import httpx
+from .qzone_api import create_qzone_api, QzoneAPI
+from .cookie import renew_cookies
+from .image import generate_images
 
-from src.common.logger import get_logger
-from src.plugin_system.apis import llm_api, config_api, emoji_api, message_api, chat_api
-from src.plugin_system.core import component_registry
-from .qzone_api import create_qzone_api
+# 全局插件上下文
+plugin_context = None
+def set_utils_plugin_context(ctx):
+    global plugin_context
+    plugin_context = ctx
 
-logger = get_logger('Maizone.组件')
+# 数据存储
+_processed_list_lock = asyncio.Lock()
 
-
-def retry(max_retries=3, delay=1, check_result=False):
+async def _save_processed_list(processed_list: Dict[str, List[str]]) -> bool:
     """
-    重试装饰器
-    :param max_retries: 最大重试次数
-    :param delay: 重试间隔时间（秒）
-    :param check_result: 是否检查函数返回值，若为True，则当函数返回False时进行重试
-    """
-    def decorator(func):
-        @functools.wraps(func)
-        async def wrapper(*args, **kwargs):
-            last_exception = None
-            
-            for attempt in range(max_retries):
-                try:
-                    result = await func(*args, **kwargs)
-                    
-                    # 如果需要检查返回值，并且返回值为False，则继续重试
-                    if check_result and result is False:
-                        logger.warning(f"函数 {func.__name__} 返回 False，第 {attempt + 1} 次尝试，{delay} 秒后重试...")
-                        if attempt < max_retries - 1:  # 不是最后一次尝试
-                            await asyncio.sleep(delay)
-                        continue  # 继续下一次重试
-                    
-                    # 函数正常执行完毕且返回值不是False，则直接返回结果
-                    return result
-                    
-                except Exception as e:
-                    last_exception = e
-                    if attempt < max_retries - 1:  # 不是最后一次尝试
-                        logger.warning(f"函数 {func.__name__} 执行失败，第 {attempt + 1} 次尝试，{delay} 秒后重试... 错误: {str(e)}")
-                        await asyncio.sleep(delay)
-                    else:
-                        logger.error(f"函数 {func.__name__} 经过 {max_retries} 次重试后仍然失败。错误: {str(e)}")
-            
-            # 如果是由于异常导致的重试失败，则抛出异常
-            if last_exception is not None:
-                raise last_exception
-            # 如果是由于返回值为False导致的重试失败，也抛出一个异常
-            elif check_result:
-                raise RuntimeError(f"函数 {func.__name__} 经过 {max_retries} 次调用，返回值均为 False")
-            # 如果函数执行成功且没有异常，但是因为返回值是False导致的退出循环，抛出运行时错误
-            else:
-                raise RuntimeError(f"函数 {func.__name__} 在执行过程中发生未知错误")
-        return wrapper
-    return decorator
-
-def encode_file(img):
-    """将PIL.Image对象编码为base64 data URL"""
-    form = (img.format or "PNG").upper()
-    buffer = BytesIO()
-    img.save(buffer, format=form)
-    byte_data = buffer.getvalue()
-    mime_type = f"image/{form.lower()}"
-    encoded_string = base64.b64encode(byte_data).decode("utf-8")
-    return f"data:{mime_type};base64,{encoded_string}"
-
-@retry(max_retries=3, delay=2, check_result=True)
-async def generate_image(provider: str, image_model: str, api_key: str, image_prompt: str, image_dir: str,
-                         batch_size: int = 1, image_size: str = None) -> bool:
-    """
-    生成说说配图保存至对应路径
-
+    保存已处理说说及评论字典到文件
     Args:
-        provider (str): 图片生成服务提供商，支持 "ModelScope" 或 "SiliconFlow"或"volcengine"。
-        image_model (str): 使用的图片生成模型名称。
-        api_key (str): API密钥。
-        image_prompt (str): 说说内容，用于生成配图的描述。
-        image_dir (str): 图片保存的目录路径。
-        batch_size (int): 每次生成的图片数量，默认为1(Qwen不支持)。
-        image_size (str): 图片大小，部分模型支持
-
+        processed_list (Dict[str, List[str]]): 已处理说说及评论字典，格式为 { "说说tid": ["已处理评论tid1", "已处理评论tid2", ...], ... }
     Returns:
-        bool: 如果生成成功返回True，否则返回False。
-
+        bool: 如果保存成功返回True，否则返回False。
     """
-    # 生成图片
-    plugin_config = component_registry.get_plugin_config('MaizonePlugin')
-    logger.info(f"将使用{provider}的{image_model}模型生成图片...")
-    try:
-        if provider.lower() == "siliconflow":
-            # SiliconFlow API
-            url = "https://api.siliconflow.cn/v1/images/generations"
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            }
-            data = {
-                "model": image_model,
-                "prompt": image_prompt,
-                "negative_prompt": "lowres, bad anatomy, bad hands, text, error, cropped, worst quality, low quality, "
-                                   "normal quality, jpeg artifacts, signature, watermark, username, blurry",
-                "seed": random.randint(1, 9999999999),
-            }
-            if image_model == "Kwai-Kolors/Kolors":
-                data["batch_size"] = batch_size  # Kolors模型支持多图
-            if image_size is not None:
-                data["image_size"] = image_size
+    logger = plugin_context.ctx.logger # type: ignore
+    async with _processed_list_lock:
+        try:
+            # 限制大小为500条说说，每条说说最多100条评论，超过时去除最旧的数据
+            # 对每条说说的评论列表修剪到最新 100 条
+            for tid, comments in list(processed_list.items()):
+                if isinstance(comments, list) and len(comments) > 100:
+                    processed_list[tid] = comments[-100:]
 
-            # 查找参考图片
-            ref_images = list(Path(image_dir).glob("done_ref.*"))
-            if ref_images and config_api.get_plugin_config(plugin_config, "models.image_ref", False):
-                image = Image.open(ref_images[0])
-                data["image"] = encode_file(image)
+            # 如果说说条目超过 500，则保留最后 500 条（最新的 500 条）
+            if len(processed_list) > 500:
+                items = list(processed_list.items())
+                trimmed_items = items[-500:]
+                processed_list = dict(trimmed_items)
 
-            async with httpx.AsyncClient() as client:
-                # 发送请求
-                res = await client.post(url, headers=headers, json=data, timeout=60.0)
-                if res.status_code != 200:
-                    logger.error(f'生成图片出错，错误码[{res.status_code}]')
-                    logger.error(f'错误响应: {res.text}')
-                    return False
-                json_data = res.json()
-                image_urls = [img["url"] for img in json_data["images"]]
-
-                # 确保目录存在
-                Path(image_dir).mkdir(parents=True, exist_ok=True)
-
-                # 下载并保存图片
-                for i, img_url in enumerate(image_urls):
-                    try:
-                        # 下载图片
-                        img_response = await client.get(img_url, timeout=60.0)
-                        img_response.raise_for_status()
-
-                        filename = f"sf_{i}.png"
-                        save_path = Path(image_dir) / filename
-
-                        # 处理图片
-                        image = Image.open(BytesIO(img_response.content))
-                        image.save(save_path)
-                        logger.info(f"图片已保存至: {save_path}")
-
-                    except Exception as e:
-                        logger.error(f"下载图片失败: {str(e)}")
-                        return False
-
-        elif provider.lower() == "modelscope":
-            # ModelScope API
-            base_url = 'https://api-inference.modelscope.cn/'
-            common_headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            }
-
-            # 准备请求数据
-            data_ = {
-                "model": image_model,
-                "prompt": image_prompt,
-                "negative_prompt": "lowres, bad anatomy, bad hands, text, error, cropped, worst quality, low quality, "
-                                   "normal quality, jpeg artifacts, signature, watermark, username, blurry",
-            }
-            if image_size is not None:
-                data_["size"] = image_size
-            # 查找参考图片
-            ref_images = list(Path(image_dir).glob("done_ref.*"))
-            if ref_images and config_api.get_plugin_config(plugin_config, "models.image_ref", False):
-                image = Image.open(ref_images[0])
-                data_["image"] = encode_file(image)
-
-            async with httpx.AsyncClient() as client:
-                # 发送异步生成请求
-                response = await client.post(
-                    f"{base_url}v1/images/generations",
-                    headers={**common_headers, "X-ModelScope-Async-Mode": "true"},
-                    content=json.dumps(data_, ensure_ascii=False).encode('utf-8'),
-                    timeout=60.0
-                )
-                response.raise_for_status()
-                task_id = response.json()["task_id"]
-
-                # 轮询任务状态
-                while True:
-                    result = await client.get(
-                        f"{base_url}v1/tasks/{task_id}",
-                        headers={**common_headers, "X-ModelScope-Task-Type": "image_generation"},
-                        timeout=60.0
-                    )
-                    result.raise_for_status()
-                    data = result.json()
-
-                    if data["task_status"] == "SUCCEED":
-                        # 下载生成的图片
-                        image_url = data["output_images"][0]
-                        img_response = await client.get(image_url, timeout=60.0)
-                        img_response.raise_for_status()
-
-                        # 处理图片
-                        image = Image.open(BytesIO(img_response.content))
-
-                        # 确保目录存在
-                        Path(image_dir).mkdir(parents=True, exist_ok=True)
-
-                        # 保存图片
-                        filename = f"ms_result.jpg"
-                        save_path = Path(image_dir) / filename
-                        image.save(save_path)
-                        logger.info(f"图片已保存至: {save_path}")
-                        break
-
-                    elif data["task_status"] == "FAILED":
-                        logger.error("生成图片任务失败")
-                        return False
-
-                    # 等待5秒后再次检查
-                    await asyncio.sleep(5)
-        elif provider.lower() == "volcengine":
-            # 火山引擎
-            url = "https://ark.cn-beijing.volces.com/api/v3/images/generations"
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            }
-            data = {
-                "model": image_model,
-                "prompt": image_prompt,
-                "watermark": False,
-            }
-            if image_size is not None:
-                data["size"] = image_size
-
-            # 查找参考图片
-            ref_images = list(Path(image_dir).glob("done_ref.*"))
-            if ref_images and config_api.get_plugin_config(plugin_config, "models.image_ref", False):
-                image = Image.open(ref_images[0])
-                data["image"] = encode_file(image)
-
-            async with httpx.AsyncClient() as client:
-                # 发送请求
-                res = await client.post(url, headers=headers, json=data, timeout=60.0)
-                if res.status_code != 200:
-                    logger.error(f'生成图片出错，错误码[{res.status_code}]')
-                    logger.error(f'错误响应: {res.text}')
-                    return False
-                json_data = res.json()
-                image_urls = [img["url"] for img in json_data["data"]]
-
-                # 确保目录存在
-                Path(image_dir).mkdir(parents=True, exist_ok=True)
-
-                # 下载并保存图片
-                for i, img_url in enumerate(image_urls):
-                    try:
-                        # 下载图片
-                        img_response = await client.get(img_url, timeout=60.0)
-                        img_response.raise_for_status()
-
-                        filename = f"ve_{i}.png"
-                        save_path = Path(image_dir) / filename
-
-                        # 处理图片
-                        image = Image.open(BytesIO(img_response.content))
-                        image.save(save_path)
-                        logger.info(f"图片已保存至: {save_path}")
-
-                    except Exception as e:
-                        logger.error(f"下载图片失败: {str(e)}")
-                        return False
-        else:
-            logger.error(f"不支持的图片生成服务提供商: {provider}")
+            file_path = str(Path(__file__).parent.resolve() / "processed_list.json")
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(processed_list, f, ensure_ascii=False, indent=2)
+            return True
+        except Exception as e:
+            logger.error(f"保存已处理说说失败: {str(e)}")
             return False
 
-        return True
 
+async def _load_processed_list() -> Dict[str, List[str]]:
+    """
+    从文件加载已处理说说及评论字典
+    Returns:
+        Dict[str, List[str]]: 已处理说说及评论字典，格式为 { "说说tid": ["已处理评论tid1", "已处理评论tid2", ...], ... }
+        如果未找到已处理说说列表，则返回一个空字典。
+    """
+    logger = plugin_context.ctx.logger # type: ignore
+    async with _processed_list_lock:
+        file_path = str(Path(__file__).parent.resolve() / "processed_list.json")
+
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    loaded_data = json.load(f)
+                    return loaded_data
+            except Exception as e:
+                logger.error(f"加载已处理说说失败: {str(e)}")
+                return {}
+        logger.warning("未找到已处理说说列表，将创建新列表")
+        return {}
+    
+async def send_feed(topic: str) -> Tuple[bool, str]:
+    """
+    根据主题和配置生成文本和图片，发送至QQ空间，返回是否发送成功和发送结果。
+
+    Args:
+        topic (str): 要发送的说说主题。
+
+    Returns:
+        Tuple[bool, str]:
+        bool: 如果发送成功返回True，否则返回False。
+        str: 发送结果，可能为"已发送说说：【文本内容】" 或 "发送说说失败"。
+    """
+    logger = plugin_context.ctx.logger  # type: ignore
+    config = plugin_context.config  # type: ignore
+    # ===== 根据主题和历史说说生成内容 =====
+    prompt_pattern = plugin_context.config.send.prompt # type: ignore
+    prompt = prompt_pattern.format(
+        bot_personality=plugin_context.personality, # type: ignore
+        current_time=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        topic=topic,
+        bot_expression=plugin_context.reply_style # type: ignore
+    )
+    await renew_cookies(config.plugin.http_host, config.plugin.http_port, config.plugin.napcat_token) # type: ignore
+    qzone = create_qzone_api()
+    history = await qzone.get_send_history(config.send.history_number) # type: ignore
+    prompt += "\n以下是你近期发布过的说说，请勿在短时间内发布重复内容：\n"
+    prompt += history
+
+    llm_response = await plugin_context.ctx.llm.generate(prompt, model=config.plugin.text_model) # type: ignore
+    message = llm_response.get("response", "")
+    logger.info(f"已生成说说：{message}")
+    # ===== 根据内容生成图片 =====
+    images_list: list[bytes] = []
+    if config.send.enable_image: # type: ignore
+        images_list = await generate_images(message, config.send.image_mode, config.send.image_number, config.send.ai_probability) # type: ignore
+    # ===== 发布说说 =====
+    result = await qzone.publish_emotion(message, images_list)
+    if result is not None:
+        logger.info(f"发布说说：{result}")
+        return True, f"已发送说说：【{message}】"
+    else:
+        logger.error("发送说说失败")
+        return False, "说说发布失败"
+
+async def read_feed(target_qq: str) -> Tuple[bool, list[dict[str, Any]]]:
+    """
+    阅读指定QQ号最近的动态，根据配置进行点赞回复，并返回结果
+    Args:
+        target_qq: 需要阅读的QQ号
+
+    Returns:
+        Tuple[bool, list[dict[str, Any]]]: 返回一个元组，第一个元素表示是否成功，第二个元素为目标空间内容的列表或错误信息。
+    """
+    logger = plugin_context.ctx.logger  # type: ignore
+    config = plugin_context.config  # type: ignore
+    await renew_cookies(config.plugin.http_host, config.plugin.http_port, config.plugin.napcat_token)  # type: ignore
+    qzone = create_qzone_api()
+    # ===== 获取说说列表 =====
+    feeds_list = await qzone.get_list(target_qq, config.read.read_number)  # type: ignore
+    first_feed = feeds_list[0]
+    # 检查是否获取失败
+    if isinstance(first_feed, dict) and first_feed.get("error"):
+        logger.error(f"获取说说列表失败，错误信息：{first_feed['error']}")
+        return False, feeds_list
+    logger.info(f"获取到的说说列表：{format_feed_list(feeds_list)}")
+    # ===== 逐条点赞、回复 =====
+    like_probability = config.read.like_probability  # type: ignore
+    comment_probability = config.read.comment_probability  # type: ignore
+    try:
+        target_user_info = await plugin_context.ctx.db.get(model_name="PersonInfo", filters={"user_id": target_qq})  # type: ignore
     except Exception as e:
-        logger.error(f"生成图片失败: {e}")
-        logger.error(traceback.format_exc())
-        return False
+        target_user_info = [{"person_name": "未知用户", "memory_points": "无印象"}]
+    target_name = target_user_info[0].get("person_name") if target_user_info else "未知用户"
+    impression = str(target_user_info[0].get("memory_points", "")) if target_user_info else "无印象"
+    bot_personality = plugin_context.personality  # type: ignore
+    bot_expression = plugin_context.reply_style  # type: ignore
+    processed_list = await _load_processed_list()
+    for feed in feeds_list:
+        if feed["tid"] in processed_list:
+            continue
+        await asyncio.sleep(3 + random.random())
+        content = feed["content"]
+        if feed["images"]:
+            for image in feed["images"]:
+                content = content + image
+        fid = feed["tid"]
+        rt_con = feed.get("rt_con", "")
+        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # 进行评论
+        if random.random() <= comment_probability: 
+            data = {
+                    "current_time": current_time,
+                    "created_time": feed['created_time'],
+                    "bot_personality": bot_personality,
+                    "bot_expression": bot_expression,
+                    "target_name": target_name,
+                    "content": content,
+                    "impression": impression
+                }
+            if not rt_con:
+                prompt_pre = config.read.prompt
+            else:
+                prompt_pre = config.read.rt_prompt
+                data["rt_con"] = rt_con
+            prompt = prompt_pre.format(**data)
+            logger.info(f"LLM生成prompt：{prompt}")
+            llm_response = await plugin_context.ctx.llm.generate(prompt, model=config.plugin.text_model)  # type: ignore
+            comment_message = llm_response.get("response", "")
+            result = await qzone.comment(fid, target_qq, comment_message)
+            if result:
+                logger.info(f"评论成功：{comment_message}")
+            else:
+                logger.error("评论失败")
+        # 进行点赞
+        if random.random() <= like_probability:
+            result = await qzone.like(fid, target_qq)
+            if result:
+                logger.info("点赞成功")
+            else:
+                logger.error("点赞失败")
+        # 更新已处理列表
+        if fid not in processed_list:
+            processed_list[fid] = []
+    # 储存本轮处理结果
+    success = await _save_processed_list(processed_list)
+    if not success:
+        logger.error("更新已处理列表失败")
+    return True, feeds_list
 
+async def monitor_read_feed() -> Tuple[bool, list[dict[str, Any]]]:
+    """
+    读取空间下最新说说并根据配置进行点赞、评论等操作
+    Returns:
+    Tuple[bool, list[dict[str, Any]]]: 返回一个元组，第一个元素表示是否成功，第二个元素为操作结果的列表或错误信息。
+    """
+    logger = plugin_context.ctx.logger  # type: ignore
+    config = plugin_context.config  # type: ignore
+    black_list = config.authority.auto_read_blacklist 
+    processed_list = await _load_processed_list()
+    bot_personality = plugin_context.personality  # type: ignore
+    bot_expression = plugin_context.reply_style  # type: ignore
+    await renew_cookies(config.plugin.http_host, config.plugin.http_port, config.plugin.napcat_token)  # type: ignore
+    qzone = create_qzone_api()
+    # 获取说说列表
+    logger.info("正在阅读空间...")
+    feeds_list = await qzone.get_qzone_list()
+    # 检查是否获取失败
+    if isinstance(feeds_list, list) and len(feeds_list) > 0 and isinstance(feeds_list[0], dict) and feeds_list[0].get("error"):
+        logger.error(f"获取说说列表失败，错误信息：{feeds_list[0]['error']}")
+        return False, feeds_list
+    # 点赞、评论等操作
+    like_possibility = config.read.like_probability  # type: ignore
+    comment_possibility = config.read.comment_probability  # type: ignore
+    for feed in feeds_list:
+        # 跳过黑名单QQ
+        if feed["target_qq"] in black_list:
+            logger.info(f"跳过黑名单QQ {feed['target_qq']} 的说说")
+            continue
+        # 提取说说信息
+        await asyncio.sleep(3 + random.random())
+        content = feed["content"]
+        if feed["images"]:
+            for image in feed["images"]:
+                content = content + image
+        fid = feed["tid"]
+        target_qq = feed["target_qq"]
+        rt_con = feed.get("rt_con", "")
+        comments_list = feed["comments"]
+        if fid in processed_list:
+            # 该说说已处理过，跳过
+            continue
+        # 进行评论
+        if random.random() <= comment_possibility:
+            # 根据配置生成评论内容
+            try:
+                target_user_info = await plugin_context.ctx.db.get(model_name="PersonInfo", filters={"user_id": target_qq})  # type: ignore
+            except Exception as e:
+                logger.error(f"获取目标用户信息失败：{e}")
+                target_user_info = [{"person_name": "未知用户", "memory_points": "无印象"}]
+            target_name = target_user_info[0].get("person_name") if target_user_info else "未知用户"
+            impression = str(target_user_info[0].get("memory_points", "")) if target_user_info else "无印象"
+            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # 获取当前时间
+            created_time = feed.get("created_time", "未知时间")
+            data = {
+                "current_time": current_time,
+                "created_time": created_time,
+                "bot_personality": bot_personality,
+                "bot_expression": bot_expression,
+                "target_name": target_name,
+                "content": content,
+                "impression": impression
+            }
+            if not rt_con:
+                prompt_pre = config.read.prompt
+            else:
+                prompt_pre = config.read.rt_prompt
+                data["rt_con"] = rt_con
+            prompt = prompt_pre.format(**data)
+            logger.info(f"正在评论'{target_qq}'的说说：{content[:30]}...")
+            response = await plugin_context.ctx.llm.generate(prompt, model=config.plugin.text_model)  # type: ignore
+            comment = response.get("response", "")
+            result = await qzone.comment(fid, target_qq, comment)
+            if result:
+                logger.info(f"成功对说说'{content[:30]}...'发表评论：{comment}")
+            else:
+                logger.error(f"对说说'{content[:30]}...'发表评论失败")
+        # 进行点赞
+        if random.random() <= like_possibility:
+            result = await qzone.like(fid, target_qq)
+            if result:
+                logger.info(f"成功点赞说说'{content[:30]}...'")
+            else:
+                logger.error(f"点赞说说'{content[:30]}...'失败")
+        # 更新已处理列表
+        if fid not in processed_list:
+            processed_list[fid] = []
+    # 储存本轮处理结果
+    success = await _save_processed_list(processed_list)
+    if not success:
+        logger.error("更新已处理列表失败")
+        return False, feeds_list
+
+    return True, feeds_list
+
+async def reply_feed() -> Tuple[bool, str]:
+    """
+    根据配置自动回复说说
+    Returns:
+        Tuple[bool, str]: 返回一个元组，第一个元素表示是否成功，第二个元素为操作结果或错误信息。
+    """
+    logger = plugin_context.ctx.logger  # type: ignore
+    config = plugin_context.config  # type: ignore
+    reply_number = config.auto_reply.reply_number
+    await renew_cookies(config.plugin.http_host, config.plugin.http_port, config.plugin.napcat_token)
+    qzone = create_qzone_api()
+    # 获取自己的说说列表
+    processed_list = await _load_processed_list()
+    feeds_list = await qzone.get_list(qzone.uin, reply_number, False)
+    reply_count = 0
+    for feed in feeds_list:
+        await asyncio.sleep(3 + random.random())
+        content = feed["content"]
+        if feed["images"]:
+            for image in feed["images"]:
+                content = content + image
+        fid = feed["tid"]
+        target_qq = feed["target_qq"]
+        rt_con = feed.get("rt_con", "")
+        comments_list = feed["comments"]
+        # 检查需要回复的评论
+        list_to_reply = []
+        if comments_list:
+            for comment in comments_list:
+                comment_qq = comment.get('qq_account', '')
+                if int(comment_qq) != int(qzone.uin): #只考虑不是自己的评论
+                    if comment['comment_tid'] not in processed_list.get(fid, []): #只考虑未处理过的评论
+                        list_to_reply.append(comment) #添加到待回复列表
+        # 无新评论需要回复则跳过
+        if len(list_to_reply) == 0:
+            continue
+        # 逐条回复
+        for comment in list_to_reply:
+            comment_qq = comment.get('qq_account', '')
+            try:
+                comment_user_info = await plugin_context.ctx.db.get(model_name="PersonInfo", filters={"user_id": comment_qq})  # type: ignore
+            except Exception as e:
+                logger.error(f"获取评论用户信息失败：{e}")
+                comment_user_info = [{"person_name": "未知用户", "memory_points": "无印象"}]
+            impression = str(comment_user_info[0].get("memory_points", "无印象")) if comment_user_info else "无印象"
+            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # 获取当前时间
+            prompt_pre = config.auto_reply.prompt
+            data = {
+                "current_time": current_time,
+                "created_time": comment['created_time'],
+                "bot_personality": plugin_context.personality, # type: ignore
+                "bot_expression": plugin_context.reply_style, # type: ignore
+                "nickname": comment['nickname'],
+                "content": content,
+                "comment_content": comment['content'],
+                "impression": impression,
+            }
+            prompt = prompt_pre.format(**data)
+            logger.info(f"正在回复{comment['nickname']}的评论'{comment['content'][:30]}...'")
+            response = await plugin_context.ctx.llm.generate(prompt, model=config.plugin.text_model)  # type: ignore
+            reply_message = response.get("response", "")
+            await renew_cookies(config.plugin.http_host, config.plugin.http_port, config.plugin.napcat_token)
+            result = await qzone.reply(fid, target_qq, comment['nickname'], reply_message, comment['comment_tid'])
+            if result:
+                logger.info(f"成功回复{comment['nickname']}的评论'{comment['content'][:30]}...'：{reply_message}")
+                reply_count += 1
+            else:
+                logger.error(f"回复{comment['nickname']}的评论'{comment['content'][:30]}...'失败")
+            # 更新已处理列表
+            if fid in processed_list:
+                if comment['comment_tid'] not in processed_list[fid]:
+                    processed_list[fid].append(comment['comment_tid'])
+            else:
+                processed_list[fid] = [comment['comment_tid']]
+    # 储存本轮处理结果
+    success = await _save_processed_list(processed_list)
+    if not success:
+        logger.error("保存处理结果失败")
+        return False, "保存处理结果失败"
+    return True, f"回复了{reply_count}条新评论"
 
 def format_feed_list(feed_list: List[Dict]) -> str:
     """
@@ -367,307 +458,39 @@ def format_feed_list(feed_list: List[Dict]) -> str:
     return "\n".join(result)
 
 
-async def send_feed(message: str,
-                    image_directory: str = "",
-                    enable_image: bool = False,
-                    image_mode: str = "random",
-                    ai_probability: float = 0.5,
-                    image_number: int = 1,
-                    ) -> bool:
-    """
-    根据说说及配置生成图片，发送说说及图片目录下的所有未处理图片。
+if __name__ == "__main__":
+    import types
 
-    Args:
-        message (str): 要发送的说说内容。为"custom"时内部改写为个人私聊最新内容
-        image_directory (str): 图片存储的目录路径。
-        enable_image (bool): 是否启用图片功能。
-        image_mode (str): 图片模式，可选值为 "only_ai", "only_emoji", "random"。
-        ai_probability (float): 在随机模式下使用AI生成图片的概率，范围为0到1。
-        image_number (int): 要生成的图片数量，范围为1到4。
+    class _Logger:
+        def debug(self, msg):
+            print("[DEBUG]", msg)
 
-    Returns:
-        bool: 如果发送成功返回True，否则返回False。
+        def info(self, msg):
+            print("[INFO]", msg)
 
-    Raises:
-        Exception: 如果在发送过程中发生错误，将记录日志并返回False。
-    """
-    qzone = create_qzone_api()
-    plugin_config = component_registry.get_plugin_config('MaizonePlugin')
-    images = []  # 图片列表
-    done_paths = []  # 已处理的图片路径
-    clear_image = config_api.get_plugin_config(plugin_config, "models.clear_image", True)  # 是否清理图片
+        def warning(self, msg):
+            print("[WARN]", msg)
 
-    if message == "custom":
-        # message为"custom"时重写message
-        uin = config_api.get_plugin_config(plugin_config, "send.custom_qqaccount", "")
-        if not uin:  # 未配置uin
-            logger.error("未配置custom模式自定义QQ账号，请检查配置文件")
-            return False
-        stream_id = chat_api.get_stream_by_user_id(uin, "qq").stream_id
-        message_list = message_api.get_messages_before_time_in_chat(
-            chat_id=stream_id,
-            timestamp=time.time(),
-            limit=20,
-            filter_mai=False
-        )
-        if config_api.get_plugin_config(plugin_config, "send.custom_only_mai", True):
-            # 只使用bot说的内容
-            message_list = [msg for msg in message_list if message_api.is_bot_self(msg.user_info.platform, msg.user_info.user_id)]
-        else: # 只使用私聊对象说的内容
-            message_list = [msg for msg in message_list if not message_api.is_bot_self(msg.user_info.platform, msg.user_info.user_id)]
-        if not message_list:
-            logger.error("未获取到任何私聊消息，无法发送自定义说说")
-            return False
-        # 倒序获取最新消息，跳过命令消息
-        for msg in reversed(message_list):
-            content = msg.processed_plain_text
-            if content and not content.startswith('/'):
-                message = content
-                break
-        if not message or message == "custom":
-            logger.error("私聊消息内容为空，无法发送")
-            return False
-        logger.info(f"获取到最新私聊消息内容: {message}")
+        def error(self, msg):
+            print("[ERROR]", msg)
 
-    if not enable_image:
-        # 如果未启用图片功能，直接发送纯文本
-        try:
-            tid = await qzone.publish_emotion(message, images)
-            logger.info(f"成功发送说说，tid: {tid}")
-            return True
-        except Exception as e:
-            logger.error("发送说说失败")
-            logger.error(traceback.format_exc())
-            return False
-    # 验证配置有效性
-    if image_mode not in ["only_ai", "only_emoji", "random"]:
-        logger.error(f"无效的图片模式: {image_mode}，已默认更改为 random")
-        image_mode = "random"
-    ai_probability = max(0.0, min(1.0, ai_probability))  # 限制在0-1之间
-    image_number = max(1, min(4, image_number))  # 限制在1-4之间
+    plugin_context = types.SimpleNamespace(ctx=types.SimpleNamespace(logger=_Logger()))
 
-    # 决定图片来源
-    if image_mode == "only_ai":
-        use_ai = True
-    elif image_mode == "only_emoji":
-        use_ai = False
-    else:  # random模式
-        use_ai = random.random() < ai_probability
+    async def _test():
+        # 构造测试数据：600 条说说，其中部分评论数 > 100
+        pl = {}
+        for i in range(600):
+            tid = f"tid{i}"
+            comments = [f"c{j}" for j in range((i % 150) + 1)]
+            pl[tid] = comments
 
-    # 获取图片
-    if use_ai:
-        # 使用AI生成图片
-        if api_key := config_api.get_plugin_config(plugin_config, "models.api_key", ""):
-            models = llm_api.get_available_models()
-            prompt_model = config_api.get_plugin_config(plugin_config, "models.text_model", "replyer")  # 获取模型配置
-            model_config = models[prompt_model]
-            personality = config_api.get_global_config("personality.personality", "一只猫娘")  # 人格
-            image_provider = config_api.get_plugin_config(plugin_config, "models.image_provider", "SiliconFlow")
-            image_model = config_api.get_plugin_config(plugin_config, "models.image_model",
-                                                       "Kwai-Kolors/Kolors")  # 获取图片模型配置
-            enable_ref = config_api.get_plugin_config(plugin_config, "models.image_ref", False)  # 启用参考图
-            image_size = config_api.get_plugin_config(plugin_config, "models.image_size", None)  # 图片尺寸
-            if not image_size:
-                image_size = None
-            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # 获取当前时间
-            logger.info(f"正在生成图片提示词...")
-            # 生成图片提示词
-            prompt_pre = config_api.get_plugin_config(plugin_config, "models.image_prompt", "")
-            data = {
-                "current_time": current_time,
-                "personality": personality,
-                "message": message
-            }
-            prompt = prompt_pre.format(**data)
-            if enable_ref:
-                prompt += config_api.get_plugin_config(plugin_config, "models.image_ref_prompt", "")
-            success, image_prompt, reasoning, model_name = await llm_api.generate_with_model(
-                prompt=prompt,
-                model_config=model_config,
-                request_type="story.generate",
-                temperature=0.3,
-                max_tokens=4096
-            )
-            if success:
-                logger.info(f'即将生成说说配图：{image_prompt}')
-            else:
-                logger.error('生成说说配图prompt失败')
-            ai_success = await generate_image(
-                provider=image_provider,
-                image_model=image_model,
-                api_key=api_key,
-                image_prompt=image_prompt,
-                image_dir=image_directory,
-                batch_size=image_number,
-                image_size=image_size
-            )
-            if ai_success:
-                # 获取目录下所有文件
-                all_files = [f for f in os.listdir(image_directory)
-                             if os.path.isfile(os.path.join(image_directory, f))]
+        ok = await _save_processed_list(pl)
+        print("save ok:", ok)
+        loaded = await _load_processed_list()
+        print("loaded count:", len(loaded))
+        max_comments = max((len(v) for v in loaded.values()), default=0)
+        print("max comments per tid after trim:", max_comments)
+        keys = list(loaded.keys())
+        print("first key:", keys[0] if keys else None, "last key:", keys[-1] if keys else None)
 
-                # 筛选未处理的图片（不以"done_"开头的文件）
-                unprocessed_files = [f for f in all_files if not f.startswith("done_")]
-                unprocessed_files_sorted = sorted(unprocessed_files)
-
-                for image_file in unprocessed_files_sorted:
-                    full_path = os.path.join(image_directory, image_file)
-                    with open(full_path, "rb") as img:
-                        images.append(img.read())
-
-                    # 生成带时间戳的前缀 (格式: done_YYYYMMDD_HHMMSS_)
-                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                    new_filename = f"done_{timestamp}_{image_file}"
-                    new_path = os.path.join(image_directory, new_filename)
-                    os.rename(full_path, new_path)
-                    done_paths.append(new_path)  # 记录处理完成的图片路径
-            else:
-                logger.error("AI图片生成失败")
-                return False
-        else:
-            logger.error("未配置API Key，无法生成AI图片")
-            return False
-    else:
-        # 使用表情包
-        for _ in range(image_number):
-            image = await emoji_api.get_by_description(message)
-            if image:
-                image_base64, description, scene = image
-                image_data = base64.b64decode(image_base64)
-                images.append(image_data)
-
-    try:
-        tid = await qzone.publish_emotion(message, images)
-        logger.info(f"成功发送说说，tid: {tid}")
-        if clear_image and done_paths:
-            for path in done_paths:
-                os.remove(path)
-                logger.info(f"已删除图片: {path}")
-        return True
-    except Exception as e:
-        logger.error("发送说说失败")
-        logger.error(traceback.format_exc())
-        return False
-
-
-async def read_feed(target_qq: str, num: int) -> list[dict]:
-    """
-    通过调用QZone API的`get_list`方法阅读指定QQ号的说说，返回说说列表。
-
-    Args:
-        target_qq (str): 目标QQ号，表示需要读取其说说的用户。
-        num (int): 要获取的说说数量。
-
-    Returns:
-        list: 包含说说信息的列表。若发生错误，则返回{'error': '错误原因'}
-
-    """
-    qzone = create_qzone_api()
-
-    try:
-        feeds_list = await qzone.get_list(target_qq, num)
-        logger.debug(f"获取到的说说列表: {format_feed_list(feeds_list)}")
-        return feeds_list
-    except Exception as e:
-        logger.error("获取list失败")
-        logger.error(traceback.format_exc())
-        return []
-
-
-async def monitor_read_feed(self_readnum) -> list[dict]:
-    """
-    通过调用QZone API的`monitor_get_list`方法定时阅读说说，返回说说列表。
-    Args:
-        self_readnum: 需要监控的自己的最新说说数量
-    Returns:
-        list: 包含说说信息的列表。
-
-    Raises:
-        Exception: 如果在获取说说列表时发生错误，将记录错误日志并返回空列表。
-    """
-    qzone = create_qzone_api()
-
-    try:
-        feeds_list = await qzone.monitor_get_list(self_readnum)
-        logger.debug(f"获取到的说说列表: {format_feed_list(feeds_list)}")
-        return feeds_list
-    except Exception as e:
-        logger.error("获取list失败")
-        logger.error(traceback.format_exc())
-        return []
-
-
-async def like_feed(target_qq: str, fid: str) -> bool:
-    """
-    调用QZone API的`like`方法点赞指定说说。
-
-    Args:
-        target_qq (str): 目标QQ号，表示需要点赞其说说的用户。
-        fid (str): 说说的动态ID。
-
-    Returns:
-        bool: 如果点赞成功返回True，否则返回False。
-
-    Raises:
-        Exception: 如果在点赞过程中发生错误，将记录错误日志并返回False。
-    """
-    qzone = create_qzone_api()
-
-    success = await qzone.like(fid, target_qq)
-    if not success:
-        logger.error("点赞失败")
-        logger.error(traceback.format_exc())
-        return success
-    return True
-
-
-async def comment_feed(target_qq: str, fid: str, content: str) -> bool:
-    """
-    通过调用QZone API的`comment`方法评论指定说说。
-
-    Args:
-        target_qq (str): 目标QQ号，表示需要评论其说说的用户。
-        fid (str): 说说的动态ID。
-        content (str): 评论的文本内容。
-
-    Returns:
-        bool: 如果评论成功返回True，否则返回False。
-
-    Raises:
-        Exception: 如果在评论过程中发生错误，将记录错误日志并返回False。
-    """
-    qzone = create_qzone_api()
-
-    success = await qzone.comment(fid, target_qq, content)
-    if not success:
-        logger.error("评论失败")
-        logger.error(traceback.format_exc())
-        return False
-    return True
-
-
-async def reply_feed(fid: str, target_qq: str, target_nickname: str, content: str, comment_tid: str) -> bool:
-    """
-    通过调用QZone API的`reply`方法回复指定评论。
-
-    Args:
-        fid (str): 说说的动态ID。
-        target_qq (str): 目标QQ号。
-        target_nickname (str): 目标QQ昵称。
-        content (str): 回复的文本内容。
-        comment_tid (str): 评论的唯一标识ID。
-
-    Returns:
-        bool: 如果回复成功返回True，否则返回False。
-
-    Raises:
-        Exception: 如果在回复过程中发生错误，将记录错误日志并返回False。
-    """
-    qzone = create_qzone_api()
-
-    success = await qzone.reply(fid, target_qq, target_nickname, content, comment_tid)
-    if not success:
-        logger.error("评论失败")
-        logger.error(traceback.format_exc())
-        return False
-    return True
+    asyncio.run(_test())
