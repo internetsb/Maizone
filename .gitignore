@@ -2,11 +2,10 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
+.vscode/
+.venv/
 # Config & Data Files
-test*
-config.*
+config.toml
+reference.jpg
+cookies.json
 processed_list.json
-processed_comments.json
-cookies-*.json
-images/*
