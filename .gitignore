@@ -5,6 +5,7 @@ __pycache__/
 .vscode/
 .venv/
 # Config & Data Files
+config_back/
 config.toml
 reference.jpg
 cookies.json

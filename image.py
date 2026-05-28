@@ -5,10 +5,25 @@ from pathlib import Path
 from openai import OpenAI
 import requests
 
+class NoLogger:
+    def info(self, msg):
+        pass
+    def warning(self, msg):
+        pass
+    def error(self, msg):
+        pass
+    def debug(self, msg):
+        pass
+logger = NoLogger()
+def set_image_logger(custom_logger):
+    global logger
+    logger = custom_logger
+
 plugin_context = None
 def set_images_plugin_context(ctx):
     global plugin_context
     plugin_context = ctx
+    set_image_logger(ctx.ctx.logger)
 
 async def generate_image(
     base_url: str,
@@ -52,20 +67,20 @@ async def generate_image(
             }
 
     client = OpenAI(base_url=base_url, api_key=api_key)
-    plugin_context.ctx.logger.info(f"正在使用模型 {model} 生成图片: {prompt}") # type: ignore
+    logger.info(f"正在使用模型 {model} 生成图片: {prompt}")
     response = client.images.generate(**body)
     if response is None or not response.data:
-        plugin_context.ctx.logger.error("图片生成失败，未收到有效响应") # type: ignore
+        logger.error("图片生成失败，未收到有效响应")
         return b''
     
     img = response.data[0]
     if img.url:
-        plugin_context.ctx.logger.info("下载图片中...") # type: ignore
+        logger.info("下载图片中...")
         r = requests.get(img.url, timeout=30)
         r.raise_for_status()
         return r.content
     elif img.b64_json:
-        plugin_context.ctx.logger.info("解码 base64 图片...") # type: ignore
+        logger.info("解码 base64 图片...")
         return base64.b64decode(img.b64_json)
     else:
         raise ValueError("图片数据为空")
@@ -107,7 +122,7 @@ async def generate_ai_image(message: str, images_prompt: list[str] | None = None
     prompt += f"已使用过的配图提示词：{used if used else '无'}。"
     response = await plugin_context.ctx.llm.generate(prompt, model=text_model)  # type: ignore
     image_prompt = response.get("response", "")
-    plugin_context.ctx.logger.info(f"生成的图片提示词：{image_prompt}")  # type: ignore
+    logger.info(f"生成的图片提示词：{image_prompt}")
     if images_prompt is not None:
         images_prompt.append(image_prompt)
 
@@ -115,21 +130,25 @@ async def generate_ai_image(message: str, images_prompt: list[str] | None = None
     image_bytes = await generate_image(base_url, api_key, model, image_prompt, reference)
     return image_bytes
 
-async def generate_emoji_image(message: str) -> bytes: 
+async def generate_emoji_image(message: str) -> bytes | None: 
     """根据message生成表情包图片，返回图片的二进制数据"""
     emoji = await plugin_context.ctx.emoji.get_by_description(description=message) # type: ignore
+    if emoji is None:
+        logger.error(f"未找到对应的表情包：{message}")
+        return None
     base64_data = emoji.get("base64", "")
     if base64_data:
         return base64.b64decode(base64_data)
-    plugin_context.ctx.logger.error(f"未找到对应的表情包：{message}") # type: ignore
-    return b''
+    logger.error(f"未找到对应的表情包：{message}")
+    return None
 
 async def generate_emoji_images(message: str, number: int) -> list[bytes]:
     """根据message生成指定数量的表情包图片，返回图片的二进制数据列表"""
     images = []
     for _ in range(number):
         image = await generate_emoji_image(message)
-        images.append(image)
+        if image:
+            images.append(image)
     return images
 
 async def generate_images(message: str, image_mode: str = "only_emoji", image_number: int = 1, ai_probability: float = 0.5) -> list[bytes]:
@@ -148,11 +167,15 @@ async def generate_images(message: str, image_mode: str = "only_emoji", image_nu
         # 随机
         for _ in range(image_number):
             if random.random() < ai_probability:
-                images_list.append(await generate_ai_image(message))
+                image_bytes = await generate_ai_image(message)
+                if image_bytes:
+                    images_list.append(image_bytes)
             else:
-                images_list.append(await generate_emoji_image(message))
+                emoji_bytes = await generate_emoji_image(message)
+                if emoji_bytes:
+                    images_list.append(emoji_bytes)
     else:
-        plugin_context.ctx.logger.error(f"未知的image_mode：{image_mode}") # type: ignore
+        logger.error(f"未知的image_mode：{image_mode}")
         return []
     return images_list
 

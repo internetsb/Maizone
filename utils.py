@@ -101,6 +101,9 @@ async def send_feed(topic: str) -> Tuple[bool, str]:
     )
     await renew_cookies(config.plugin.http_host, config.plugin.http_port, config.plugin.napcat_token) # type: ignore
     qzone = create_qzone_api()
+    if not qzone:
+        logger.error("创建QzoneAPI实例失败，无法发送说说")
+        return False, "发送说说失败"
     history = await qzone.get_send_history(config.send.history_number) # type: ignore
     prompt += "\n以下是你近期发布过的说说，请勿在短时间内发布重复内容：\n"
     prompt += history
@@ -115,7 +118,7 @@ async def send_feed(topic: str) -> Tuple[bool, str]:
     # ===== 发布说说 =====
     result = await qzone.publish_emotion(message, images_list)
     if result is not None:
-        logger.info(f"发布说说：{result}")
+        logger.info(f"发布说说ID：{result}")
         return True, f"已发送说说：【{message}】"
     else:
         logger.error("发送说说失败")
@@ -134,6 +137,9 @@ async def read_feed(target_qq: str) -> Tuple[bool, list[dict[str, Any]]]:
     config = plugin_context.config  # type: ignore
     await renew_cookies(config.plugin.http_host, config.plugin.http_port, config.plugin.napcat_token)  # type: ignore
     qzone = create_qzone_api()
+    if not qzone:
+        logger.error("创建QzoneAPI实例失败，无法读取说说")
+        return False, [{"error": "无法创建QzoneAPI实例"}]
     # ===== 获取说说列表 =====
     feeds_list = await qzone.get_list(target_qq, config.read.read_number)  # type: ignore
     first_feed = feeds_list[0]
@@ -220,6 +226,9 @@ async def monitor_read_feed() -> Tuple[bool, list[dict[str, Any]]]:
     bot_expression = plugin_context.reply_style  # type: ignore
     await renew_cookies(config.plugin.http_host, config.plugin.http_port, config.plugin.napcat_token)  # type: ignore
     qzone = create_qzone_api()
+    if not qzone:
+        logger.error("创建QzoneAPI实例失败，无法监控说说")
+        return False, [{"error": "无法创建QzoneAPI实例"}]
     # 获取说说列表
     logger.info("正在阅读空间...")
     feeds_list = await qzone.get_qzone_list()
@@ -312,6 +321,9 @@ async def reply_feed() -> Tuple[bool, str]:
     reply_number = config.auto_reply.reply_number
     await renew_cookies(config.plugin.http_host, config.plugin.http_port, config.plugin.napcat_token)
     qzone = create_qzone_api()
+    if not qzone:
+        logger.error("创建QzoneAPI实例失败，无法回复说说")
+        return False, "回复说说失败"
     # 获取自己的说说列表
     processed_list = await _load_processed_list()
     feeds_list = await qzone.get_list(qzone.uin, reply_number, False)

@@ -1,13 +1,10 @@
 import base64
-import datetime
 import json
-import sys
 import os
 import time
 from typing import Any
 from pathlib import Path
 
-from maibot_sdk import API
 import httpx
 # 额外依赖库
 import json5
@@ -15,29 +12,24 @@ import bs4
 
 cookie_path = str(Path(__file__).parent.resolve() / "cookies.json")
 # ===== logger =====
-# logger在插件加载时注入ctx.logger实例
 class NoLogger:
     def info(self, msg):
         pass
-    def error(self, msg):
-        pass
     def warning(self, msg):
+        pass
+    def error(self, msg):
         pass
     def debug(self, msg):
         pass
-    def critical(self, msg):
-        pass
 logger = NoLogger()
-
-def set_qzone_logger(log_instance):
-    """设置logger实例"""
+def set_qzoneapi_logger(custom_logger):
     global logger
-    logger = log_instance
+    logger = custom_logger
 
 # ===== Image Manager =====
 class NoImageManager:
     async def get_image_description(self, image_base64: str) -> str:
-        return "图片"
+        return "[图片]"
 image_manager = NoImageManager()
 def set_image_manager(image_manager_instance):
     """设置image_manager实例"""

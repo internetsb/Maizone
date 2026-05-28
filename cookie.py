@@ -4,36 +4,30 @@ import re
 import time
 import os
 from pathlib import Path
-
 import httpx
 
 from maibot_sdk import API
 # ===== logger =====
-# logger在插件加载时注入ctx.logger实例
 class NoLogger:
     def info(self, msg):
         pass
-    def error(self, msg):
-        pass
     def warning(self, msg):
+        pass
+    def error(self, msg):
         pass
     def debug(self, msg):
         pass
-    def critical(self, msg):
-        pass
 logger = NoLogger()
-
-def set_cookie_logger(log_instance):
-    """设置全局logger实例"""
+def set_cookie_logger(custom_logger):
     global logger
-    logger = log_instance
+    logger = custom_logger
 # ===== API =====
 api = None
 def set_api_capability(api_capability):
     """设置插件API上下文，用于调用get_cookies API"""
     global api
     api = api_capability
-
+    
 # QQ空间二维码登录相关URL
 _qrcode_url = "https://ssl.ptlogin2.qq.com/ptqrshow?appid=549000912&e=2&l=M&s=3&d=72&v=4&t=0.31232733520361844&daid=5&pt_3rd_aid=0"
 _login_check_url = "https://xui.ptlogin2.qq.com/ssl/ptqrlogin?u1=https://qzs.qq.com/qzone/v5/loginsucc.html?para=izone&ptqrtoken={}&ptredirect=0&h=1&t=1&g=1&from_ui=1&ptlang=2052&action=0-0-1656992258324&js_ver=22070111&js_type=1&login_sig=&pt_uistyle=40&aid=549000912&daid=5&has_onekey=1&&o1vId=1e61428d61cb5015701ad73d5fb59f73"

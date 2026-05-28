@@ -8,20 +8,16 @@ from .utils import read_feed, send_feed, monitor_read_feed, reply_feed
 class NoLogger:
     def info(self, msg):
         pass
-    def error(self, msg):
-        pass
     def warning(self, msg):
+        pass
+    def error(self, msg):
         pass
     def debug(self, msg):
         pass
-    def critical(self, msg):
-        pass
 logger = NoLogger()
-
-def set_tasks_logger(log_instance):
-    """设置logger实例"""
+def set_tasks_logger(custom_logger):
     global logger
-    logger = log_instance
+    logger = custom_logger
 
 
 def _is_in_silent_period(silent_hours_config: str) -> bool:
@@ -118,7 +114,6 @@ class FeedMonitor:
         self.is_running = False
         self.task = None
         self.last_check_time = 0
-        set_tasks_logger(self.plugin.ctx.logger)
 
     async def start(self):
         """启动监控任务"""
@@ -193,7 +188,6 @@ class ScheduleSender:
         self.fluctuate_table = []  # 记录波动后的发送时间表
         self.last_reset_date = None  # 记录上次重置发送时间表日期
         self.today_send_enabled = True  # 记录今天是否允许发送说说
-        set_tasks_logger(self.plugin.ctx.logger)
 
     async def start(self):
         """启动定时发送任务"""

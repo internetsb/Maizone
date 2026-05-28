@@ -2,11 +2,11 @@ from maibot_sdk import Command, MaiBotPlugin, Tool, API
 from maibot_sdk.types import ToolParameterInfo, ToolParamType
 
 from .config import MaizonePluginConfig
-from .cookie import renew_cookies, set_cookie_logger, set_api_capability
-from .qzone_api import set_qzone_logger, create_qzone_api
+from .cookie import renew_cookies, set_api_capability, set_cookie_logger
+from .qzone_api import create_qzone_api, set_qzoneapi_logger
 from .image import set_images_plugin_context
 from .utils import set_utils_plugin_context, read_feed, send_feed
-from .tasks import FeedMonitor, ScheduleSender
+from .tasks import FeedMonitor, ScheduleSender, set_tasks_logger
 
 class MaizonePlugin(MaiBotPlugin):
     config_model = MaizonePluginConfig
@@ -15,8 +15,9 @@ class MaizonePlugin(MaiBotPlugin):
     async def on_load(self):
         """插件加载：检查配置、测试napcat连接、注册定时任务等"""
         set_api_capability(self.ctx.api)
+        set_tasks_logger(self.ctx.logger)
+        set_qzoneapi_logger(self.ctx.logger)
         set_cookie_logger(self.ctx.logger)
-        set_qzone_logger(self.ctx.logger)
         set_utils_plugin_context(self)
         set_images_plugin_context(self)
         # ===== 检查文本模型是否可用 =====

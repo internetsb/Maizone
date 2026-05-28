@@ -150,7 +150,7 @@ class AuthorityConfig(PluginConfigBase):
     read_blacklist: list[str] = Field(default=["123456","350234"], description="禁止使用读说说指令的QQ号黑名单")
     # 自动读说说任务权限
     auto_read_authority_type: str = Field(default="blacklist", description="自动读说说任务权限控制方式：blacklist（黑名单，禁止黑名单中的QQ号被自动读说说）/whitelist（白名单，仅允许白名单中的QQ号被自动读说说）")
-    auto_read_whitelist: list[str] = Field(default=["123456","350234"], description="自动读说说任务的QQ号白名单")
+    auto_read_whitelist: list[str] = Field(default=[], description="自动读说说任务的QQ号白名单")
     auto_read_blacklist: list[str] = Field(default=["123456","350234"], description="自动读说说任务的QQ号黑名单")
 
 
