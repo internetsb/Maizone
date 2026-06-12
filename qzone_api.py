@@ -389,14 +389,23 @@ class QzoneAPI:
             logger.error("评论失败: " + res.text)
             return False
 
-    async def reply(self, fid: str, target_qq: str, target_nickname: str, content: str, comment_tid: str) -> bool:
+    async def reply(
+        self,
+        fid: str,
+        target_qq: str,
+        target_nickname: str,
+        target_comment_qq: str,
+        content: str,
+        comment_tid: str,
+    ) -> bool:
         """
         回复指定评论。
-        TODO 采用子评论回复的方法不可用，暂时通过在评论内容中@目标昵称来实现。
+
         Args:
             fid (str): 说说的动态ID。
             target_qq (str): 目标QQ号。
             target_nickname (str): 目标QQ昵称。
+            target_comment_qq (str): 被回复评论的发布者QQ。
             content (str): 回复的文本内容。
             comment_tid (str): 评论的唯一标识ID。
 
@@ -404,30 +413,43 @@ class QzoneAPI:
             bool: 如果回复成功返回True，否则返回False。
         """
         uin = self.uin
+        if not target_comment_qq or not comment_tid:
+            logger.error("回复失败：缺少评论者QQ或评论ID，无法定位真实评论")
+            return False
+
+        target_comment_qq = str(target_comment_qq)
+        comment_tid = str(comment_tid)
         post_data = {
-            "topicId": f"{uin}_{fid}__1",  # 使用标准评论格式，而不是针对特定评论
+            "topicId": f"{target_qq}_{fid}__1",
             "uin": uin,
-            "hostUin": uin,
-            "content": f"回复@ {target_nickname} ：{content}",  # 内容中明确标示回复对象
+            "hostUin": target_qq,
+            "feedsType": 100,
+            "inCharset": "utf-8",
+            "outCharset": "utf-8",
+            "content": f"@{{uin:{target_comment_qq},nick:{target_nickname},auto:1}}{content}",
             "format": "fs",
             "plat": "qzone",
             "source": "ic",
             "platformid": 52,
             "ref": "feeds",
+            "commentId": comment_tid,
+            "commentUin": target_comment_qq,
             "richtype": "",
             "richval": "",
-            "paramstr": f"@{target_nickname}",  # 确保触发@提醒机制
+            "paramstr": "1",
         }
         async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
             res = await client.request(
                 method="POST",
-                url=self.REPLY_URL,
+                url=self.COMMENT_URL,
                 params={
                     "g_tk": self.gtk2,
                 },
                 data=post_data,
                 headers={
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
+                    'referer': 'https://user.qzone.qq.com/' + str(self.uin),
+                    'origin': 'https://user.qzone.qq.com'
                 },
                 cookies=self.cookies
             )

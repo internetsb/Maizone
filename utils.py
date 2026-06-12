@@ -10,7 +10,7 @@ import os
 import random
 from pathlib import Path
 
-from .qzone_api import create_qzone_api, QzoneAPI
+from .qzone_api import create_qzone_api
 from .cookie import renew_cookies
 from .image import generate_images
 
@@ -375,7 +375,14 @@ async def reply_feed() -> Tuple[bool, str]:
             response = await plugin_context.ctx.llm.generate(prompt, model=config.plugin.text_model)  # type: ignore
             reply_message = response.get("response", "")
             await renew_cookies(config.plugin.http_host, config.plugin.http_port, config.plugin.napcat_token)
-            result = await qzone.reply(fid, target_qq, comment['nickname'], reply_message, comment['comment_tid'])
+            result = await qzone.reply(
+                fid,
+                target_qq,
+                comment['nickname'],
+                comment_qq,
+                reply_message,
+                comment['comment_tid'],
+            )
             if result:
                 logger.info(f"成功回复{comment['nickname']}的评论'{comment['content'][:30]}...'：{reply_message}")
                 reply_count += 1
