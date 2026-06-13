@@ -22,60 +22,72 @@ def set_utils_plugin_context(ctx):
 
 # 数据存储
 _processed_list_lock = asyncio.Lock()
+_processed_list_cache: Dict[str, List] | None = None
+_MAX_PROCESSED_FEEDS = 500  # 最多记录500条说说
+_MAX_PROCESSED_COMMENTS = 100  # 每条说说最多记录100条已处理评论
 
-async def _save_processed_list(processed_list: Dict[str, List[str]]) -> bool:
+
+def _processed_list_path() -> str:
+    return str(Path(__file__).parent.resolve() / "processed_list.json")
+
+
+async def _get_processed_list() -> Dict[str, List]:
     """
-    保存已处理说说及评论字典到文件
-    Args:
-        processed_list (Dict[str, List[str]]): 已处理说说及评论字典，格式为 { "说说tid": ["已处理评论tid1", "已处理评论tid2", ...], ... }
-    Returns:
-        bool: 如果保存成功返回True，否则返回False。
+    获取已处理说说及评论字典，格式为 { "说说tid": [已处理评论tid1, 已处理评论tid2, ...], ... }
+    进程内所有调用方共享同一个dict，避免各自加载副本、最后整体覆盖保存造成丢失更新。
     """
-    logger = plugin_context.ctx.logger # type: ignore
+    global _processed_list_cache
+    if _processed_list_cache is not None:
+        return _processed_list_cache
+    logger = plugin_context.ctx.logger  # type: ignore
     async with _processed_list_lock:
+        if _processed_list_cache is None:
+            file_path = _processed_list_path()
+            if os.path.exists(file_path):
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        _processed_list_cache = json.load(f)
+                except Exception as e:
+                    logger.error(f"加载已处理说说失败: {str(e)}")
+                    _processed_list_cache = {}
+            else:
+                logger.warning("未找到已处理说说列表，将创建新列表")
+                _processed_list_cache = {}
+    return _processed_list_cache
+
+
+async def _mark_processed(fid: str, comment_tid=None) -> bool:
+    """
+    标记一条说说（及可选的其中一条评论）为已处理，并立即原子落盘。
+    每次标记都会把该说说移到字典末尾（LRU），仍然出现在最近列表中的说说
+    不会被容量裁剪淘汰，从而避免重复评论/重复回复。
+    Args:
+        fid: 说说tid
+        comment_tid: 已处理的评论tid，None表示仅标记说说本身
+    Returns:
+        bool: 落盘是否成功（内存中的标记总是生效）。
+    """
+    logger = plugin_context.ctx.logger  # type: ignore
+    processed_list = await _get_processed_list()
+    async with _processed_list_lock:
+        comments = processed_list.pop(fid, [])
+        if comment_tid is not None and comment_tid not in comments:
+            comments.append(comment_tid)
+            if len(comments) > _MAX_PROCESSED_COMMENTS:
+                comments = comments[-_MAX_PROCESSED_COMMENTS:]
+        processed_list[fid] = comments
+        while len(processed_list) > _MAX_PROCESSED_FEEDS:
+            processed_list.pop(next(iter(processed_list)))
         try:
-            # 限制大小为500条说说，每条说说最多100条评论，超过时去除最旧的数据
-            # 对每条说说的评论列表修剪到最新 100 条
-            for tid, comments in list(processed_list.items()):
-                if isinstance(comments, list) and len(comments) > 100:
-                    processed_list[tid] = comments[-100:]
-
-            # 如果说说条目超过 500，则保留最后 500 条（最新的 500 条）
-            if len(processed_list) > 500:
-                items = list(processed_list.items())
-                trimmed_items = items[-500:]
-                processed_list = dict(trimmed_items)
-
-            file_path = str(Path(__file__).parent.resolve() / "processed_list.json")
-            with open(file_path, 'w', encoding='utf-8') as f:
+            file_path = _processed_list_path()
+            tmp_path = file_path + ".tmp"
+            with open(tmp_path, 'w', encoding='utf-8') as f:
                 json.dump(processed_list, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, file_path)
             return True
         except Exception as e:
             logger.error(f"保存已处理说说失败: {str(e)}")
             return False
-
-
-async def _load_processed_list() -> Dict[str, List[str]]:
-    """
-    从文件加载已处理说说及评论字典
-    Returns:
-        Dict[str, List[str]]: 已处理说说及评论字典，格式为 { "说说tid": ["已处理评论tid1", "已处理评论tid2", ...], ... }
-        如果未找到已处理说说列表，则返回一个空字典。
-    """
-    logger = plugin_context.ctx.logger # type: ignore
-    async with _processed_list_lock:
-        file_path = str(Path(__file__).parent.resolve() / "processed_list.json")
-
-        if os.path.exists(file_path):
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    loaded_data = json.load(f)
-                    return loaded_data
-            except Exception as e:
-                logger.error(f"加载已处理说说失败: {str(e)}")
-                return {}
-        logger.warning("未找到已处理说说列表，将创建新列表")
-        return {}
     
 async def send_feed(topic: str) -> Tuple[bool, str]:
     """
@@ -142,6 +154,9 @@ async def read_feed(target_qq: str) -> Tuple[bool, list[dict[str, Any]]]:
         return False, [{"error": "无法创建QzoneAPI实例"}]
     # ===== 获取说说列表 =====
     feeds_list = await qzone.get_list(target_qq, config.read.read_number)  # type: ignore
+    if not feeds_list:
+        logger.error("获取说说列表失败：返回为空")
+        return False, [{"error": "获取说说列表为空"}]
     first_feed = feeds_list[0]
     # 检查是否获取失败
     if isinstance(first_feed, dict) and first_feed.get("error"):
@@ -153,63 +168,63 @@ async def read_feed(target_qq: str) -> Tuple[bool, list[dict[str, Any]]]:
     comment_probability = config.read.comment_probability  # type: ignore
     try:
         target_user_info = await plugin_context.ctx.db.get(model_name="PersonInfo", filters={"user_id": target_qq})  # type: ignore
-    except Exception as e:
+    except Exception:
         target_user_info = [{"person_name": "未知用户", "memory_points": "无印象"}]
     target_name = target_user_info[0].get("person_name") if target_user_info else "未知用户"
     impression = str(target_user_info[0].get("memory_points", "")) if target_user_info else "无印象"
     bot_personality = plugin_context.personality  # type: ignore
     bot_expression = plugin_context.reply_style  # type: ignore
-    processed_list = await _load_processed_list()
+    processed_list = await _get_processed_list()
     for feed in feeds_list:
-        if feed["tid"] in processed_list:
+        fid = feed["tid"]
+        if fid in processed_list:
+            # 已处理过：touch一次保持LRU活跃，防止仍在最近列表中的说说被裁剪淘汰后重复评论
+            await _mark_processed(fid)
             continue
         await asyncio.sleep(3 + random.random())
         content = feed["content"]
         if feed["images"]:
             for image in feed["images"]:
                 content = content + image
-        fid = feed["tid"]
         rt_con = feed.get("rt_con", "")
         current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        # 进行评论
-        if random.random() <= comment_probability: 
-            data = {
-                    "current_time": current_time,
-                    "created_time": feed['created_time'],
-                    "bot_personality": bot_personality,
-                    "bot_expression": bot_expression,
-                    "target_name": target_name,
-                    "content": content,
-                    "impression": impression
-                }
-            if not rt_con:
-                prompt_pre = config.read.prompt
-            else:
-                prompt_pre = config.read.rt_prompt
-                data["rt_con"] = rt_con
-            prompt = prompt_pre.format(**data)
-            logger.info(f"LLM生成prompt：{prompt}")
-            llm_response = await plugin_context.ctx.llm.generate(prompt, model=config.plugin.text_model)  # type: ignore
-            comment_message = llm_response.get("response", "")
-            result = await qzone.comment(fid, target_qq, comment_message)
-            if result:
-                logger.info(f"评论成功：{comment_message}")
-            else:
-                logger.error("评论失败")
-        # 进行点赞
-        if random.random() <= like_probability:
-            result = await qzone.like(fid, target_qq)
-            if result:
-                logger.info("点赞成功")
-            else:
-                logger.error("点赞失败")
-        # 更新已处理列表
-        if fid not in processed_list:
-            processed_list[fid] = []
-    # 储存本轮处理结果
-    success = await _save_processed_list(processed_list)
-    if not success:
-        logger.error("更新已处理列表失败")
+        try:
+            # 进行评论
+            if random.random() <= comment_probability:
+                data = {
+                        "current_time": current_time,
+                        "created_time": feed['created_time'],
+                        "bot_personality": bot_personality,
+                        "bot_expression": bot_expression,
+                        "target_name": target_name,
+                        "content": content,
+                        "impression": impression
+                    }
+                if not rt_con:
+                    prompt_pre = config.read.prompt
+                else:
+                    prompt_pre = config.read.rt_prompt
+                    data["rt_con"] = rt_con
+                prompt = prompt_pre.format(**data)
+                logger.info(f"LLM生成prompt：{prompt}")
+                llm_response = await plugin_context.ctx.llm.generate(prompt, model=config.plugin.text_model)  # type: ignore
+                comment_message = llm_response.get("response", "")
+                result = await qzone.comment(fid, target_qq, comment_message)
+                if result:
+                    logger.info(f"评论成功：{comment_message}")
+                else:
+                    logger.error("评论失败")
+            # 进行点赞
+            if random.random() <= like_probability:
+                result = await qzone.like(fid, target_qq)
+                if result:
+                    logger.info("点赞成功")
+                else:
+                    logger.error("点赞失败")
+        except Exception as e:
+            logger.error(f"处理说说{fid}时出错: {str(e)}")
+        # 无论成功与否都立即落盘标记，避免下一轮对同一说说重复评论
+        await _mark_processed(fid)
     return True, feeds_list
 
 async def monitor_read_feed() -> Tuple[bool, list[dict[str, Any]]]:
@@ -220,8 +235,8 @@ async def monitor_read_feed() -> Tuple[bool, list[dict[str, Any]]]:
     """
     logger = plugin_context.ctx.logger  # type: ignore
     config = plugin_context.config  # type: ignore
-    black_list = config.authority.auto_read_blacklist 
-    processed_list = await _load_processed_list()
+    black_list = config.authority.auto_read_blacklist
+    processed_list = await _get_processed_list()
     bot_personality = plugin_context.personality  # type: ignore
     bot_expression = plugin_context.reply_style  # type: ignore
     await renew_cookies(config.plugin.http_host, config.plugin.http_port, config.plugin.napcat_token)  # type: ignore
@@ -244,69 +259,66 @@ async def monitor_read_feed() -> Tuple[bool, list[dict[str, Any]]]:
         if feed["target_qq"] in black_list:
             logger.info(f"跳过黑名单QQ {feed['target_qq']} 的说说")
             continue
+        fid = feed["tid"]
+        if fid in processed_list:
+            # 已处理过：touch一次保持LRU活跃，防止仍在动态页中的说说被裁剪淘汰后重复评论
+            await _mark_processed(fid)
+            continue
         # 提取说说信息
         await asyncio.sleep(3 + random.random())
         content = feed["content"]
         if feed["images"]:
             for image in feed["images"]:
                 content = content + image
-        fid = feed["tid"]
         target_qq = feed["target_qq"]
         rt_con = feed.get("rt_con", "")
-        comments_list = feed["comments"]
-        if fid in processed_list:
-            # 该说说已处理过，跳过
-            continue
-        # 进行评论
-        if random.random() <= comment_possibility:
-            # 根据配置生成评论内容
-            try:
-                target_user_info = await plugin_context.ctx.db.get(model_name="PersonInfo", filters={"user_id": target_qq})  # type: ignore
-            except Exception as e:
-                logger.error(f"获取目标用户信息失败：{e}")
-                target_user_info = [{"person_name": "未知用户", "memory_points": "无印象"}]
-            target_name = target_user_info[0].get("person_name") if target_user_info else "未知用户"
-            impression = str(target_user_info[0].get("memory_points", "")) if target_user_info else "无印象"
-            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # 获取当前时间
-            created_time = feed.get("created_time", "未知时间")
-            data = {
-                "current_time": current_time,
-                "created_time": created_time,
-                "bot_personality": bot_personality,
-                "bot_expression": bot_expression,
-                "target_name": target_name,
-                "content": content,
-                "impression": impression
-            }
-            if not rt_con:
-                prompt_pre = config.read.prompt
-            else:
-                prompt_pre = config.read.rt_prompt
-                data["rt_con"] = rt_con
-            prompt = prompt_pre.format(**data)
-            logger.info(f"正在评论'{target_qq}'的说说：{content[:30]}...")
-            response = await plugin_context.ctx.llm.generate(prompt, model=config.plugin.text_model)  # type: ignore
-            comment = response.get("response", "")
-            result = await qzone.comment(fid, target_qq, comment)
-            if result:
-                logger.info(f"成功对说说'{content[:30]}...'发表评论：{comment}")
-            else:
-                logger.error(f"对说说'{content[:30]}...'发表评论失败")
-        # 进行点赞
-        if random.random() <= like_possibility:
-            result = await qzone.like(fid, target_qq)
-            if result:
-                logger.info(f"成功点赞说说'{content[:30]}...'")
-            else:
-                logger.error(f"点赞说说'{content[:30]}...'失败")
-        # 更新已处理列表
-        if fid not in processed_list:
-            processed_list[fid] = []
-    # 储存本轮处理结果
-    success = await _save_processed_list(processed_list)
-    if not success:
-        logger.error("更新已处理列表失败")
-        return False, feeds_list
+        try:
+            # 进行评论
+            if random.random() <= comment_possibility:
+                # 根据配置生成评论内容
+                try:
+                    target_user_info = await plugin_context.ctx.db.get(model_name="PersonInfo", filters={"user_id": target_qq})  # type: ignore
+                except Exception as e:
+                    logger.error(f"获取目标用户信息失败：{e}")
+                    target_user_info = [{"person_name": "未知用户", "memory_points": "无印象"}]
+                target_name = target_user_info[0].get("person_name") if target_user_info else "未知用户"
+                impression = str(target_user_info[0].get("memory_points", "")) if target_user_info else "无印象"
+                current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # 获取当前时间
+                created_time = feed.get("created_time", "未知时间")
+                data = {
+                    "current_time": current_time,
+                    "created_time": created_time,
+                    "bot_personality": bot_personality,
+                    "bot_expression": bot_expression,
+                    "target_name": target_name,
+                    "content": content,
+                    "impression": impression
+                }
+                if not rt_con:
+                    prompt_pre = config.read.prompt
+                else:
+                    prompt_pre = config.read.rt_prompt
+                    data["rt_con"] = rt_con
+                prompt = prompt_pre.format(**data)
+                logger.info(f"正在评论'{target_qq}'的说说：{content[:30]}...")
+                response = await plugin_context.ctx.llm.generate(prompt, model=config.plugin.text_model)  # type: ignore
+                comment = response.get("response", "")
+                result = await qzone.comment(fid, target_qq, comment)
+                if result:
+                    logger.info(f"成功对说说'{content[:30]}...'发表评论：{comment}")
+                else:
+                    logger.error(f"对说说'{content[:30]}...'发表评论失败")
+            # 进行点赞
+            if random.random() <= like_possibility:
+                result = await qzone.like(fid, target_qq)
+                if result:
+                    logger.info(f"成功点赞说说'{content[:30]}...'")
+                else:
+                    logger.error(f"点赞说说'{content[:30]}...'失败")
+        except Exception as e:
+            logger.error(f"处理说说{fid}时出错: {str(e)}")
+        # 无论成功与否都立即落盘标记，避免下一轮对同一说说重复评论
+        await _mark_processed(fid)
 
     return True, feeds_list
 
@@ -325,80 +337,88 @@ async def reply_feed() -> Tuple[bool, str]:
         logger.error("创建QzoneAPI实例失败，无法回复说说")
         return False, "回复说说失败"
     # 获取自己的说说列表
-    processed_list = await _load_processed_list()
+    processed_list = await _get_processed_list()
     feeds_list = await qzone.get_list(qzone.uin, reply_number, False)
+    if not feeds_list:
+        logger.error("获取自己的说说列表失败：返回为空")
+        return False, "获取自己的说说列表为空"
+    if isinstance(feeds_list[0], dict) and feeds_list[0].get("error"):
+        logger.error(f"获取自己的说说列表失败：{feeds_list[0]['error']}")
+        return False, str(feeds_list[0]['error'])
     reply_count = 0
     for feed in feeds_list:
-        await asyncio.sleep(3 + random.random())
+        fid = feed["tid"]
+        # touch：自己的说说仍在回复窗口内时保持LRU活跃，防止评论记录被裁剪淘汰后重复回复
+        await _mark_processed(fid)
         content = feed["content"]
         if feed["images"]:
             for image in feed["images"]:
                 content = content + image
-        fid = feed["tid"]
         target_qq = feed["target_qq"]
-        rt_con = feed.get("rt_con", "")
         comments_list = feed["comments"]
         # 检查需要回复的评论
         list_to_reply = []
-        if comments_list:
-            for comment in comments_list:
-                comment_qq = comment.get('qq_account', '')
-                if int(comment_qq) != int(qzone.uin): #只考虑不是自己的评论
-                    if comment['comment_tid'] not in processed_list.get(fid, []): #只考虑未处理过的评论
-                        list_to_reply.append(comment) #添加到待回复列表
+        for comment in (comments_list or []):
+            comment_qq = str(comment.get('qq_account', '') or '').strip()
+            comment_tid = comment.get('comment_tid')
+            if not comment_qq.isdigit() or not comment_tid:
+                # 缺少评论者QQ或评论ID时无法定位评论，跳过
+                continue
+            if comment_qq == str(qzone.uin):
+                # 只考虑不是自己的评论
+                continue
+            if comment_tid in processed_list.get(fid, []):
+                # 只考虑未处理过的评论
+                continue
+            list_to_reply.append(comment)
         # 无新评论需要回复则跳过
         if len(list_to_reply) == 0:
             continue
         # 逐条回复
         for comment in list_to_reply:
-            comment_qq = comment.get('qq_account', '')
+            await asyncio.sleep(3 + random.random())
+            comment_qq = str(comment.get('qq_account', ''))
             try:
-                comment_user_info = await plugin_context.ctx.db.get(model_name="PersonInfo", filters={"user_id": comment_qq})  # type: ignore
+                try:
+                    comment_user_info = await plugin_context.ctx.db.get(model_name="PersonInfo", filters={"user_id": comment_qq})  # type: ignore
+                except Exception as e:
+                    logger.error(f"获取评论用户信息失败：{e}")
+                    comment_user_info = [{"person_name": "未知用户", "memory_points": "无印象"}]
+                impression = str(comment_user_info[0].get("memory_points", "无印象")) if comment_user_info else "无印象"
+                current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # 获取当前时间
+                prompt_pre = config.auto_reply.prompt
+                data = {
+                    "current_time": current_time,
+                    "created_time": comment['created_time'],
+                    "bot_personality": plugin_context.personality, # type: ignore
+                    "bot_expression": plugin_context.reply_style, # type: ignore
+                    "nickname": comment['nickname'],
+                    "content": content,
+                    "comment_content": comment['content'],
+                    "impression": impression,
+                }
+                prompt = prompt_pre.format(**data)
+                logger.info(f"正在回复{comment['nickname']}的评论'{comment['content'][:30]}...'")
+                response = await plugin_context.ctx.llm.generate(prompt, model=config.plugin.text_model)  # type: ignore
+                reply_message = response.get("response", "")
+                await renew_cookies(config.plugin.http_host, config.plugin.http_port, config.plugin.napcat_token)
+                result = await qzone.reply(
+                    fid,
+                    target_qq,
+                    comment['nickname'],
+                    comment_qq,
+                    reply_message,
+                    comment['comment_tid'],
+                )
+                if result:
+                    logger.info(f"成功回复{comment['nickname']}的评论'{comment['content'][:30]}...'：{reply_message}")
+                    reply_count += 1
+                else:
+                    logger.error(f"回复{comment['nickname']}的评论'{comment['content'][:30]}...'失败")
             except Exception as e:
-                logger.error(f"获取评论用户信息失败：{e}")
-                comment_user_info = [{"person_name": "未知用户", "memory_points": "无印象"}]
-            impression = str(comment_user_info[0].get("memory_points", "无印象")) if comment_user_info else "无印象"
-            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # 获取当前时间
-            prompt_pre = config.auto_reply.prompt
-            data = {
-                "current_time": current_time,
-                "created_time": comment['created_time'],
-                "bot_personality": plugin_context.personality, # type: ignore
-                "bot_expression": plugin_context.reply_style, # type: ignore
-                "nickname": comment['nickname'],
-                "content": content,
-                "comment_content": comment['content'],
-                "impression": impression,
-            }
-            prompt = prompt_pre.format(**data)
-            logger.info(f"正在回复{comment['nickname']}的评论'{comment['content'][:30]}...'")
-            response = await plugin_context.ctx.llm.generate(prompt, model=config.plugin.text_model)  # type: ignore
-            reply_message = response.get("response", "")
-            await renew_cookies(config.plugin.http_host, config.plugin.http_port, config.plugin.napcat_token)
-            result = await qzone.reply(
-                fid,
-                target_qq,
-                comment['nickname'],
-                comment_qq,
-                reply_message,
-                comment['comment_tid'],
-            )
-            if result:
-                logger.info(f"成功回复{comment['nickname']}的评论'{comment['content'][:30]}...'：{reply_message}")
-                reply_count += 1
-            else:
-                logger.error(f"回复{comment['nickname']}的评论'{comment['content'][:30]}...'失败")
-            # 更新已处理列表
-            if fid in processed_list:
-                if comment['comment_tid'] not in processed_list[fid]:
-                    processed_list[fid].append(comment['comment_tid'])
-            else:
-                processed_list[fid] = [comment['comment_tid']]
-    # 储存本轮处理结果
-    success = await _save_processed_list(processed_list)
-    if not success:
-        logger.error("保存处理结果失败")
-        return False, "保存处理结果失败"
+                logger.error(f"回复评论{comment.get('comment_tid')}时出错: {str(e)}")
+            # 无论成功与否都立即落盘标记，避免下一轮重复回复同一条评论
+            await _mark_processed(fid, comment['comment_tid'])
     return True, f"回复了{reply_count}条新评论"
 
 def format_feed_list(feed_list: List[Dict]) -> str:
@@ -478,6 +498,8 @@ def format_feed_list(feed_list: List[Dict]) -> str:
 
 
 if __name__ == "__main__":
+    import sys
+    import tempfile
     import types
 
     class _Logger:
@@ -496,20 +518,33 @@ if __name__ == "__main__":
     plugin_context = types.SimpleNamespace(ctx=types.SimpleNamespace(logger=_Logger()))
 
     async def _test():
-        # 构造测试数据：600 条说说，其中部分评论数 > 100
-        pl = {}
-        for i in range(600):
-            tid = f"tid{i}"
-            comments = [f"c{j}" for j in range((i % 150) + 1)]
-            pl[tid] = comments
+        # 使用临时目录，避免覆盖真实的 processed_list.json
+        tmp_dir = tempfile.mkdtemp()
+        module = sys.modules[__name__]
+        module._processed_list_path = lambda: str(Path(tmp_dir) / "processed_list.json")
 
-        ok = await _save_processed_list(pl)
-        print("save ok:", ok)
-        loaded = await _load_processed_list()
-        print("loaded count:", len(loaded))
-        max_comments = max((len(v) for v in loaded.values()), default=0)
-        print("max comments per tid after trim:", max_comments)
-        keys = list(loaded.keys())
-        print("first key:", keys[0] if keys else None, "last key:", keys[-1] if keys else None)
+        # 写入600条说说，验证容量裁剪到500
+        for i in range(600):
+            await _mark_processed(f"tid{i}", f"c{i % 150}")
+        pl = await _get_processed_list()
+        print("entries after 600 inserts:", len(pl))  # 应为500
+        print("oldest evicted:", "tid0" not in pl and "tid99" not in pl)
+        print("newest kept:", "tid599" in pl)
+
+        # touch最旧的条目后再插入新条目，验证LRU不淘汰活跃条目
+        oldest = next(iter(pl))
+        await _mark_processed(oldest)
+        await _mark_processed("tid_new")
+        print("touched entry survived:", oldest in pl)
+
+        # 验证评论裁剪到100条
+        for j in range(150):
+            await _mark_processed("tid_comments", j)
+        print("comments trimmed to:", len(pl["tid_comments"]))  # 应为100
+
+        # 验证落盘后可重新加载
+        module._processed_list_cache = None
+        reloaded = await _get_processed_list()
+        print("reload consistent:", len(reloaded) == len(pl) or len(reloaded) <= 500)
 
     asyncio.run(_test())
