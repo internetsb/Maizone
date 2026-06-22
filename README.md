@@ -6,7 +6,7 @@
 
 ## 概述
 
-Maizone（麦麦空间）插件v3.0.1测试版，让你的麦麦发说说，读QQ空间，点赞评论！
+Maizone（麦麦空间）插件v3.0.2，让你的麦麦发说说，读QQ空间，点赞评论！
 
 ## 功能
 
@@ -22,7 +22,7 @@ Maizone（麦麦空间）插件v3.0.1测试版，让你的麦麦发说说，读Q
 
 ### 一、安装插件
 
-1. 安装并启用[Napcat_Adapter](https://docs.mai-mai.org/manual/adapters/napcat.html)插件，并进行相应配置
+1. 安装并启用[Napcat_Adapter](https://docs.mai-mai.org/manual/adapters/napcat.html)插件，并进行相应配置。SnowLuma配置请查看常见问题
 2. 从插件商店下载本插件、或克隆本仓库至 `MaiBot\plugins` 文件夹下
 3. 命令运行较为耗时，建议修改主程序的插件运行超时阈值
 
@@ -166,9 +166,9 @@ self.ctx.logger.info(f"API 调用结果:{result}")
 
   **A：请检查插件目录下是否生成cookie，cookie中uin是否正确对应qq号，若错误请尝试使用以下备选方案**
 
-  1. **备选napcat连接**
+  1. **备选napcat/snowluma连接**
 
-     在Napcat中添加一个http服务器，
+     在Napcat/SnowLuma中添加一个http服务器，
 
      ```
      Host = "0.0.0.0"
@@ -183,6 +183,17 @@ self.ctx.logger.info(f"API 调用结果:{result}")
      http_port = "9999" # 刚才填写的Port
      napcat_token = "自己设置的密钥"
      ```
+
+     若不使用Napcat-Adapter插件，请将_manifest.json中dependencies节去除对Napcat_Adapter的依赖：
+
+      ```json
+      {
+        "type": "plugin",
+        "id": "maibot-team.napcat-adapter",
+        "version_spec": ">=0.1.0"
+      },
+      ```
+
   2. **扫码登录**
 
      插件目录下会生成qrcode.png，打开图片，使用手机扫码登录QQ空间，有效期约一天
