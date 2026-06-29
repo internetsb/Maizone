@@ -159,7 +159,7 @@ class FeedMonitor:
                     else:
                         logger.info(f"已阅读{qq}的说说，数量：{len(message)}条")
                 # 若是白名单模式，则跳过其他QQ
-                if authority_type == "white_list":
+                if authority_type == "whitelist":
                     continue
                 # 否则继续处理QQ
                 else:
