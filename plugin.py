@@ -136,10 +136,12 @@ class MaizonePlugin(MaiBotPlugin):
         return success, message, 1
 
     # ========== 阅读空间 ==========
-    @Command("readfeed",pattern=r"^/readfeed\s+(?P<target_name>.+)$")
+    @Command("readfeed",pattern=r"^/readfeed\s+(?P<target_name>.+?)(?:\s+(?P<no_reply>不回复|不评论|noreply|no-reply|nocomment))?$")
     async def handle_read_feed(self, **kwargs):
         matched = kwargs.get("matched_groups", {})
         target_name = matched.get("target_name", "").strip()
+        no_reply = (matched.get("no_reply") or "").strip()
+        enable_comment = not bool(no_reply)
         target_info = await self.ctx.db.get(model_name="PersonInfo", filters={"person_name": target_name}) # type: ignore
         target_qq = target_info[0].get("user_id") if target_info else ""
         stream_id = kwargs["stream_id"]
@@ -150,24 +152,33 @@ class MaizonePlugin(MaiBotPlugin):
             await self.ctx.send.text("Permission denied", stream_id)
             return False, "权限不足", 1
         # ===== 阅读空间 =====
-        self.ctx.logger.info(f"开始阅读{target_name}的说说，QQ号：{target_qq}")
-        success, message = await read_feed(target_qq)
+        self.ctx.logger.info(
+            f"开始阅读{target_name}的说说，QQ号：{target_qq}，enable_comment={enable_comment}"
+        )
+        success, message = await read_feed(target_qq, enable_comment=enable_comment)
         if not success:
             self.ctx.logger.error(message)
             await self.ctx.send.text(str(message), stream_id)
             return success, str(message), 1
-        await self.ctx.send.text(f"已阅读{len(message)}条说说", stream_id)
+        suffix = "（未评论）" if not enable_comment else ""
+        await self.ctx.send.text(f"已阅读{len(message)}条说说{suffix}", stream_id)
         return success, str(message), 1
     
     @Tool(
         name="read_feed",
-        description="阅读QQ空间说说",
+        description="阅读QQ空间说说；可用 enable_comment=false 只读不评论",
         parameters=[
             ToolParameterInfo(name="nickname", param_type=ToolParamType.STRING, description="要求阅读说说的用户的昵称", required=True),
-            ToolParameterInfo(name="target_name", param_type=ToolParamType.STRING, description="要求阅读说说的目标用户昵称", required=True)
+            ToolParameterInfo(name="target_name", param_type=ToolParamType.STRING, description="要求阅读说说的目标用户昵称", required=True),
+            ToolParameterInfo(
+                name="enable_comment",
+                param_type=ToolParamType.STRING,
+                description="是否评论：true/false；false、否、不回复=只读不评论。默认 true",
+                required=False,
+            ),
         ],
     )
-    async def handle_read_feed_tool(self, nickname: str, target_name: str, **kwargs):
+    async def handle_read_feed_tool(self, nickname: str, target_name: str, enable_comment: str = "true", **kwargs):
         user_info = await self.ctx.db.get(model_name="PersonInfo", filters={"person_name": nickname})
         user_id = user_info[0].get("user_id") if user_info else ""
         target_info = await self.ctx.db.get(model_name="PersonInfo", filters={"person_name": target_name})
@@ -177,8 +188,24 @@ class MaizonePlugin(MaiBotPlugin):
             # 由主程序回复
             return False, "该用户无权命令阅读说说", 1
         # ===== 阅读空间 =====
-        success, message = await read_feed(target_qq)
+        do_comment = self._parse_enable_comment(enable_comment, default=True)
+        success, message = await read_feed(target_qq, enable_comment=do_comment)
         return success, str(message), 1
+
+    @staticmethod
+    def _parse_enable_comment(value, default: bool = True) -> bool:
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        text = str(value).strip().lower()
+        if text in {"", "default", "默认"}:
+            return default
+        if text in {"0", "false", "no", "n", "off", "否", "不", "不回复", "不评论", "skip", "none"}:
+            return False
+        if text in {"1", "true", "yes", "y", "on", "是", "回复", "评论"}:
+            return True
+        return default
     
     @API(
         name="send_feed_api",

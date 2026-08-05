@@ -20,6 +20,47 @@ def set_utils_plugin_context(ctx):
     global plugin_context
     plugin_context = ctx
 
+
+def _is_skip_comment(text) -> bool:
+    """LLM 选择不评论时返回 True。"""
+    if text is None:
+        return True
+    t = str(text).strip()
+    if not t:
+        return True
+    for _ in range(2):
+        t = t.strip().strip("\"'“”‘’`")
+        if len(t) >= 2 and t[0] in "[(（【" and t[-1] in "])）】":
+            t = t[1:-1].strip()
+    normalized = "".join(t.split()).lower()
+    return normalized in {
+        "不回复", "不评论", "跳过", "无", "无评论",
+        "无需回复", "不用回复", "不必回复",
+        "skip", "none", "n/a", "na", "null",
+    }
+
+
+_SKIP_PROMPT_SUFFIX = (
+    "。如果你觉得没必要评论（内容无感、不适合插嘴、太隐私、广告、重复水帖等），"
+    "只输出三个字：不回复；否则只输出评论正文"
+)
+
+
+def _with_skip_prompt(prompt: str, allow_skip: bool) -> str:
+    if not allow_skip:
+        return prompt
+    if "不回复" in prompt:
+        return prompt
+    return prompt.rstrip() + _SKIP_PROMPT_SUFFIX
+
+
+def _allow_skip_comment(config) -> bool:
+    read_cfg = getattr(config, "read", None)
+    if read_cfg is None:
+        return True
+    return bool(getattr(read_cfg, "allow_skip_comment", True))
+
+
 # 数据存储
 _processed_list_lock = asyncio.Lock()
 _processed_list_cache: Dict[str, List] | None = None
@@ -136,11 +177,12 @@ async def send_feed(topic: str) -> Tuple[bool, str]:
         logger.error("发送说说失败")
         return False, "说说发布失败"
 
-async def read_feed(target_qq: str) -> Tuple[bool, list[dict[str, Any]]]:
+async def read_feed(target_qq: str, enable_comment: bool = True) -> Tuple[bool, list[dict[str, Any]]]:
     """
     阅读指定QQ号最近的动态，根据配置进行点赞回复，并返回结果
     Args:
         target_qq: 需要阅读的QQ号
+        enable_comment: 是否允许评论；False 时只读/点赞，不发表评论
 
     Returns:
         Tuple[bool, list[dict[str, Any]]]: 返回一个元组，第一个元素表示是否成功，第二个元素为目标空间内容的列表或错误信息。
@@ -166,6 +208,7 @@ async def read_feed(target_qq: str) -> Tuple[bool, list[dict[str, Any]]]:
     # ===== 逐条点赞、回复 =====
     like_probability = config.read.like_probability  # type: ignore
     comment_probability = config.read.comment_probability  # type: ignore
+    allow_skip = _allow_skip_comment(config)
     try:
         target_user_info = await plugin_context.ctx.db.get(model_name="PersonInfo", filters={"user_id": target_qq})  # type: ignore
     except Exception:
@@ -189,8 +232,8 @@ async def read_feed(target_qq: str) -> Tuple[bool, list[dict[str, Any]]]:
         rt_con = feed.get("rt_con", "")
         current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         try:
-            # 进行评论
-            if random.random() <= comment_probability:
+            # 进行评论（可关闭；也可由 LLM 选择不回复）
+            if enable_comment and random.random() <= comment_probability:
                 data = {
                         "current_time": current_time,
                         "created_time": feed['created_time'],
@@ -205,15 +248,20 @@ async def read_feed(target_qq: str) -> Tuple[bool, list[dict[str, Any]]]:
                 else:
                     prompt_pre = config.read.rt_prompt
                     data["rt_con"] = rt_con
-                prompt = prompt_pre.format(**data)
+                prompt = _with_skip_prompt(prompt_pre.format(**data), allow_skip)
                 logger.info(f"LLM生成prompt：{prompt}")
                 llm_response = await plugin_context.ctx.llm.generate(prompt, model=config.plugin.text_model)  # type: ignore
                 comment_message = llm_response.get("response", "")
-                result = await qzone.comment(fid, target_qq, comment_message)
-                if result:
-                    logger.info(f"评论成功：{comment_message}")
+                if allow_skip and _is_skip_comment(comment_message):
+                    logger.info(f"选择不评论说说 {fid}: {comment_message!r}")
                 else:
-                    logger.error("评论失败")
+                    result = await qzone.comment(fid, target_qq, comment_message)
+                    if result:
+                        logger.info(f"评论成功：{comment_message}")
+                    else:
+                        logger.error("评论失败")
+            elif not enable_comment:
+                logger.info(f"本次读空间关闭评论，跳过说说 {fid}")
             # 进行点赞
             if random.random() <= like_probability:
                 result = await qzone.like(fid, target_qq)
@@ -254,6 +302,7 @@ async def monitor_read_feed() -> Tuple[bool, list[dict[str, Any]]]:
     # 点赞、评论等操作
     like_possibility = config.read.like_probability  # type: ignore
     comment_possibility = config.read.comment_probability  # type: ignore
+    allow_skip = _allow_skip_comment(config)
     for feed in feeds_list:
         # 跳过黑名单QQ
         if feed["target_qq"] in black_list:
@@ -273,7 +322,7 @@ async def monitor_read_feed() -> Tuple[bool, list[dict[str, Any]]]:
         target_qq = feed["target_qq"]
         rt_con = feed.get("rt_con", "")
         try:
-            # 进行评论
+            # 进行评论（可由 LLM 选择不回复）
             if random.random() <= comment_possibility:
                 # 根据配置生成评论内容
                 try:
@@ -299,15 +348,18 @@ async def monitor_read_feed() -> Tuple[bool, list[dict[str, Any]]]:
                 else:
                     prompt_pre = config.read.rt_prompt
                     data["rt_con"] = rt_con
-                prompt = prompt_pre.format(**data)
+                prompt = _with_skip_prompt(prompt_pre.format(**data), allow_skip)
                 logger.info(f"正在评论'{target_qq}'的说说：{content[:30]}...")
                 response = await plugin_context.ctx.llm.generate(prompt, model=config.plugin.text_model)  # type: ignore
                 comment = response.get("response", "")
-                result = await qzone.comment(fid, target_qq, comment)
-                if result:
-                    logger.info(f"成功对说说'{content[:30]}...'发表评论：{comment}")
+                if allow_skip and _is_skip_comment(comment):
+                    logger.info(f"选择不评论'{target_qq}'的说说：{comment!r}")
                 else:
-                    logger.error(f"对说说'{content[:30]}...'发表评论失败")
+                    result = await qzone.comment(fid, target_qq, comment)
+                    if result:
+                        logger.info(f"成功对说说'{content[:30]}...'发表评论：{comment}")
+                    else:
+                        logger.error(f"对说说'{content[:30]}...'发表评论失败")
             # 进行点赞
             if random.random() <= like_possibility:
                 result = await qzone.like(fid, target_qq)
