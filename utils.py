@@ -310,6 +310,8 @@ async def send_feed(topic: str) -> Tuple[bool, str]:
     prompt += history
 
     # ===== 4. LLM 生成说说内容 =====
+    logger.debug(f"完整 Prompt:\n{prompt}")
+
     llm_response = await plugin_context.ctx.llm.generate(prompt, model=config.plugin.text_model) # type: ignore
     message = llm_response.get("response", "")
     logger.info(f"已生成说说：{message}")
