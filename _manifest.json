@@ -23,7 +23,7 @@
   "dependencies": [
     {
       "type": "plugin",
-      "id": "maibot-team.napcat-adapter",
+      "id": "maibot-team.snowluma-adapter",
       "version_spec": ">=0.1.0"
     },
     {
@@ -55,7 +55,13 @@
     "message.get_recent",
     "api.call",
     "emoji.get_by_description",
-    "database.get"
+    "database.get",
+    "message.get_by_time",
+    "message.get_by_time_in_chat",
+    "chat.get_stream_by_group_id",
+    "chat.get_stream_by_user_id",
+    "chat.get_group_streams",
+    "chat.get_private_streams"
   ],
   "i18n": {
     "default_locale": "zh-CN"

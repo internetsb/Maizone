@@ -8,10 +8,12 @@ from .image import set_images_plugin_context
 from .utils import set_utils_plugin_context, read_feed, send_feed
 from .tasks import FeedMonitor, ScheduleSender, set_tasks_logger
 
+
 class MaizonePlugin(MaiBotPlugin):
     config_model = MaizonePluginConfig
     personality = ""
     reply_style = ""
+
     async def on_load(self):
         """插件加载：检查配置、测试napcat连接、注册定时任务等"""
         set_api_capability(self.ctx.api)
@@ -20,17 +22,17 @@ class MaizonePlugin(MaiBotPlugin):
         set_cookie_logger(self.ctx.logger)
         set_utils_plugin_context(self)
         set_images_plugin_context(self)
+
         # ===== 检查文本模型是否可用 =====
         available_models = await self.ctx.llm.get_available_models()
-        # self.ctx.logger.info(f"可用文本模型：{available_models}")
-        text_model = self.config.plugin.text_model # type: ignore
+        text_model = self.config.plugin.text_model  # type: ignore
         if text_model not in available_models:
             self.ctx.logger.error(f"文本模型{text_model}不可用，请检查配置")
 
         # ===== 测试通过adapter或napcat获取cookie =====
-        napcat_host = self.config.plugin.http_host # type: ignore
-        napcat_port = self.config.plugin.http_port # type: ignore
-        napcat_token = self.config.plugin.napcat_token # type: ignore
+        napcat_host = self.config.plugin.http_host  # type: ignore
+        napcat_port = self.config.plugin.http_port  # type: ignore
+        napcat_token = self.config.plugin.napcat_token  # type: ignore
         if not await renew_cookies(napcat_host, napcat_port, napcat_token, ['adapter'], False) and not await renew_cookies(napcat_host, napcat_port, napcat_token, ['napcat'], False):
             self.ctx.logger.error("通过Napcat获取Cookie失败，请检查配置，或忍受手动扫码登录的麻烦")
         else:
@@ -39,31 +41,31 @@ class MaizonePlugin(MaiBotPlugin):
         # ===== 从主程序获取人格，表达方式等配置 =====
         self.ctx.logger.info("正在加载人格配置...")
         global_config = await self.ctx.config.get("personality", "fail")
-        # self.ctx.logger.info(f"已加载人格配置：{global_config}")
         self.personality = global_config.get("personality", "未知")
         self.reply_style = global_config.get("reply_style", "未知")
         self.ctx.logger.info(f"已加载人格配置：personality={self.personality}, reply_style={self.reply_style}")
+
         # ===== 定时任务注册 =====
-        if self.config.auto_read.enable_auto_read: # type: ignore
-            self.feed_monitor = FeedMonitor(self) 
+        if self.config.auto_read.enable_auto_read:  # type: ignore
+            self.feed_monitor = FeedMonitor(self)
             await self.feed_monitor.start()
-        if self.config.auto_send.enable_auto_send: # type: ignore
+        if self.config.auto_send.enable_auto_send:  # type: ignore
             self.schedule_sender = ScheduleSender(self)
             await self.schedule_sender.start()
-        
+
     async def on_unload(self):
-        # 插件卸载：取消定时任务、清理资源等
+        """插件卸载：取消定时任务、清理资源等"""
         if hasattr(self, "feed_monitor"):
             await self.feed_monitor.stop()
         if hasattr(self, "schedule_sender"):
             await self.schedule_sender.stop()
 
     async def on_config_update(self, scope: str, config_data: dict[str, object], version: str):
-        # 插件配置更新写入config.toml
+        """配置热更新回调"""
         del scope
-        del config_data 
+        del config_data
         del version
-            
+
     # 权限检查
     def check_permission(self, qq_account: str, tool: str) -> bool:
         """检查qq_account是否有权限使用tool工具
@@ -71,12 +73,12 @@ class MaizonePlugin(MaiBotPlugin):
         qq_account: QQ账号
         tool: 可为send_feed、read_fead
         """
-        send_authority_type = self.config.authority.send_authority_type # type: ignore
-        send_whitelist = self.config.authority.send_whitelist # type: ignore
-        send_blacklist = self.config.authority.send_blacklist # type: ignore
-        read_authority_type = self.config.authority.read_authority_type # type: ignore
-        read_whitelist = self.config.authority.read_whitelist # type: ignore
-        read_blacklist = self.config.authority.read_blacklist # type: ignore
+        send_authority_type = self.config.authority.send_authority_type  # type: ignore
+        send_whitelist = self.config.authority.send_whitelist  # type: ignore
+        send_blacklist = self.config.authority.send_blacklist  # type: ignore
+        read_authority_type = self.config.authority.read_authority_type  # type: ignore
+        read_whitelist = self.config.authority.read_whitelist  # type: ignore
+        read_blacklist = self.config.authority.read_blacklist  # type: ignore
         if tool == "send_feed":
             if send_authority_type == 'whitelist':
                 return qq_account in send_whitelist
@@ -98,7 +100,7 @@ class MaizonePlugin(MaiBotPlugin):
             return False
 
     # ========== 发送说说 ==========
-    @Command("sendfeed",pattern=r"^/sendfeed\s+(?P<topic>.+)$")
+    @Command("sendfeed", pattern=r"^/sendfeed\s+(?P<topic>.+)$")
     async def handle_send_feed(self, **kwargs):
         matched = kwargs.get("matched_groups", {})
         topic = matched.get("topic", "").strip()
@@ -114,7 +116,6 @@ class MaizonePlugin(MaiBotPlugin):
             self.ctx.logger.error(message)
         await self.ctx.send.text(message, stream_id)
         return success, message, 1
-        
 
     @Tool(
         name="send_feed",
@@ -136,11 +137,11 @@ class MaizonePlugin(MaiBotPlugin):
         return success, message, 1
 
     # ========== 阅读空间 ==========
-    @Command("readfeed",pattern=r"^/readfeed\s+(?P<target_name>.+)$")
+    @Command("readfeed", pattern=r"^/readfeed\s+(?P<target_name>.+)$")
     async def handle_read_feed(self, **kwargs):
         matched = kwargs.get("matched_groups", {})
         target_name = matched.get("target_name", "").strip()
-        target_info = await self.ctx.db.get(model_name="PersonInfo", filters={"person_name": target_name}) # type: ignore
+        target_info = await self.ctx.db.get(model_name="PersonInfo", filters={"person_name": target_name})  # type: ignore
         target_qq = target_info[0].get("user_id") if target_info else ""
         stream_id = kwargs["stream_id"]
         user_id = kwargs["user_id"]
@@ -158,7 +159,7 @@ class MaizonePlugin(MaiBotPlugin):
             return success, str(message), 1
         await self.ctx.send.text(f"已阅读{len(message)}条说说", stream_id)
         return success, str(message), 1
-    
+
     @Tool(
         name="read_feed",
         description="阅读QQ空间说说",
@@ -179,7 +180,7 @@ class MaizonePlugin(MaiBotPlugin):
         # ===== 阅读空间 =====
         success, message = await read_feed(target_qq)
         return success, str(message), 1
-    
+
     @API(
         name="send_feed_api",
         description="发送说说，参数：message：文本内容（可选），images：图片二进制数据列表（可选）",
@@ -188,7 +189,7 @@ class MaizonePlugin(MaiBotPlugin):
     )
     async def send_feed_api(self, message: str = "", images: list[bytes] = [], **kwargs):
         """API版本的发送说说工具，供其他插件调用"""
-        await renew_cookies(self.config.plugin.http_host, self.config.plugin.http_port, self.config.plugin.napcat_token, ['adapter', 'napcat'], True) # type: ignore
+        await renew_cookies(self.config.plugin.http_host, self.config.plugin.http_port, self.config.plugin.napcat_token, ['adapter', 'napcat'], True)  # type: ignore
         qzone = create_qzone_api()
         if qzone is None:
             return {"result": False, "message": "无法创建QzoneAPI实例，发送说说失败"}
@@ -197,7 +198,7 @@ class MaizonePlugin(MaiBotPlugin):
             return {"result": False, "message": "发送说说失败"}
         else:
             return {"result": True, "message": f"说说发送成功，动态ID：{fid}"}
-    
+
     @API(
         name="get_feeds_list_api",
         description="获取指定QQ号的说说列表，参数：target_qq：目标QQ号，num：获取数量（默认5），filter：是否过滤已评论过的说说（默认False）",
@@ -206,7 +207,7 @@ class MaizonePlugin(MaiBotPlugin):
     )
     async def get_feeds_list_api(self, target_qq: str, num: int = 5, filter: bool = False, **kwargs):
         """API版本的获取说说列表工具"""
-        await renew_cookies(self.config.plugin.http_host, self.config.plugin.http_port, self.config.plugin.napcat_token, ['adapter', 'napcat'], True) # type: ignore
+        await renew_cookies(self.config.plugin.http_host, self.config.plugin.http_port, self.config.plugin.napcat_token, ['adapter', 'napcat'], True)  # type: ignore
         qzone = create_qzone_api()
         if qzone is None:
             return {"result": False, "message": "无法创建QzoneAPI实例，获取列表失败"}
@@ -219,4 +220,4 @@ class MaizonePlugin(MaiBotPlugin):
 
 def create_plugin() -> MaizonePlugin:
     """创建插件实例。"""
-    return MaizonePlugin() 
+    return MaizonePlugin()
