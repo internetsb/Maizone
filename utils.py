@@ -2,6 +2,7 @@
 utils.py
 LLM生成内容并调用底层API与QQ空间交互
 """
+
 from typing import List, Dict, Tuple, Any
 import datetime
 import asyncio
@@ -13,14 +14,18 @@ from pathlib import Path
 from .qzone_api import create_qzone_api
 from .cookie import renew_cookies
 from .image import generate_images
+from .chat_fetcher import MessageFetcher, set_chat_fetcher_logger
 
 # 全局插件上下文
 plugin_context = None
 def set_utils_plugin_context(ctx):
     global plugin_context
     plugin_context = ctx
+    # 同时设置 chat_fetcher 的 logger
+    set_chat_fetcher_logger(ctx.ctx.logger)
 
 
+# ========== 智能跳过评论辅助函数 ==========
 def _is_skip_comment(text) -> bool:
     """LLM 选择不评论时返回 True。"""
     if text is None:
@@ -45,7 +50,6 @@ _SKIP_PROMPT_SUFFIX = (
     "只输出三个字：不回复；否则只输出评论正文"
 )
 
-
 def _with_skip_prompt(prompt: str, allow_skip: bool) -> str:
     if not allow_skip:
         return prompt
@@ -61,7 +65,177 @@ def _allow_skip_comment(config) -> bool:
     return bool(getattr(read_cfg, "allow_skip_comment", True))
 
 
-# 数据存储
+# ========== 聊天记录处理函数 ==========
+async def _fetch_chat_messages() -> Tuple[List[Dict[str, Any]], str]:
+    """
+    根据配置抓取聊天记录，返回 (消息列表, 处理后的文本素材)。
+
+    Returns:
+        (messages, formatted_text): 消息列表和格式化后的文本
+        如果未启用或消息不足，formatted_text 为 fallback_prompt
+    """
+    logger = plugin_context.ctx.logger  # type: ignore
+    config = plugin_context.config  # type: ignore
+    send_config = config.send
+
+    # 检查是否启用
+    if not send_config.enable_chat_memory:
+        return [], ""
+
+    # 计算时间范围
+    now = datetime.datetime.now()
+    if send_config.time_range == "today":
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        end = now
+    else:  # last_n_hours
+        start = now - datetime.timedelta(hours=send_config.last_hours)
+        end = now
+
+    start_time = start.timestamp()
+    end_time = end.timestamp()
+
+    # target_chats 现在是 list[str]，直接使用
+    target_chats_list = send_config.target_chats or []
+
+    # 抓取消息
+    fetcher = MessageFetcher(plugin_context.ctx)
+    messages = await fetcher.fetch_with_filter(
+        filter_mode=send_config.filter_mode,
+        target_chats=target_chats_list,
+        start_time=start_time,
+        end_time=end_time,
+    )
+
+    logger.info(f"抓取到 {len(messages)} 条聊天记录")
+
+    # 检查消息数量是否满足最低要求
+    if len(messages) < send_config.min_messages:
+        logger.info(f"消息数量 {len(messages)} 低于最低要求 {send_config.min_messages}，使用 fallback")
+        return messages, send_config.fallback_prompt
+
+    # 根据模式处理消息
+    formatted_text = await _process_chat_messages_by_mode(messages, send_config)
+    return messages, formatted_text
+
+
+async def _process_chat_messages_by_mode(messages: List[Dict[str, Any]], send_config) -> str:
+    """
+    根据 chat_memory_mode 处理消息列表。
+
+    Args:
+        messages: 消息列表（已按时间升序排列）
+        send_config: 发送配置对象
+
+    Returns:
+        处理后的文本
+    """
+    logger = plugin_context.ctx.logger  # type: ignore
+    mode = send_config.chat_memory_mode
+
+    if mode == "direct":
+        # 直接截断取最近 N 条
+        return MessageFetcher.format_chat_messages(
+            messages,
+            per_message_max_chars=send_config.per_message_max_chars,
+            max_messages=send_config.max_messages,
+            reverse=True,
+        )
+
+    elif mode == "summary":
+        # LLM 精简摘要
+        # 先格式化全部消息（截断但保留足够信息）
+        raw_text = MessageFetcher.format_chat_messages(
+            messages,
+            per_message_max_chars=send_config.per_message_max_chars,
+            max_messages=send_config.max_messages,
+            reverse=False,  # 时间正序，让 LLM 理解时间线
+        )
+
+        if not raw_text:
+            return send_config.fallback_prompt
+
+        # 调用 LLM 生成摘要
+        try:
+            prompt = send_config.summary_prompt.format(chat_logs=raw_text)
+            response = await plugin_context.ctx.llm.generate(
+                prompt,
+                model=send_config.summary_model
+            )
+            summary = response.get("response", "")
+            if summary:
+                logger.info(f"LLM 摘要生成成功，长度: {len(summary)}")
+                return f"【今日聊天摘要】\n{summary}"
+            else:
+                logger.warning("LLM 摘要生成失败，降级为 direct")
+                return MessageFetcher.format_chat_messages(
+                    messages,
+                    per_message_max_chars=send_config.per_message_max_chars,
+                    max_messages=send_config.max_messages,
+                    reverse=True,
+                )
+        except Exception as e:
+            logger.error(f"LLM 摘要生成异常: {e}，降级为 direct")
+            return MessageFetcher.format_chat_messages(
+                messages,
+                per_message_max_chars=send_config.per_message_max_chars,
+                max_messages=send_config.max_messages,
+                reverse=True,
+            )
+
+    elif mode == "hybrid":
+        # 混合模式：最近 N 条保留原文 + 更早的生成摘要
+        recent_count = send_config.hybrid_recent_count
+        recent_messages = messages[-recent_count:] if len(messages) > recent_count else messages
+        older_messages = messages[:-recent_count] if len(messages) > recent_count else []
+
+        # 格式化最近消息（倒序，最新的在前）
+        recent_text = MessageFetcher.format_chat_messages(
+            recent_messages,
+            per_message_max_chars=send_config.per_message_max_chars,
+            max_messages=0,  # 不额外截断
+            reverse=True,
+        )
+
+        # 如果有更早的消息，生成摘要
+        if older_messages:
+            older_raw = MessageFetcher.format_chat_messages(
+                older_messages,
+                per_message_max_chars=send_config.per_message_max_chars,
+                max_messages=0,
+                reverse=False,
+            )
+            try:
+                prompt = send_config.summary_prompt.format(chat_logs=older_raw)
+                response = await plugin_context.ctx.llm.generate(
+                    prompt,
+                    model=send_config.summary_model
+                )
+                summary = response.get("response", "")
+                if summary:
+                    result = f"【今日更早时段】\n{summary}\n\n【最近动态】\n{recent_text}"
+                    logger.info(f"混合模式生成成功，摘要长度: {len(summary)}")
+                    return result
+                else:
+                    logger.warning("混合模式摘要生成失败，降级为 direct")
+                    return recent_text
+            except Exception as e:
+                logger.error(f"混合模式摘要生成异常: {e}，降级为 direct")
+                return recent_text
+        else:
+            # 没有更早消息，直接返回最近消息
+            return recent_text
+
+    else:
+        logger.warning(f"未知的 chat_memory_mode: {mode}，使用 direct")
+        return MessageFetcher.format_chat_messages(
+            messages,
+            per_message_max_chars=send_config.per_message_max_chars,
+            max_messages=send_config.max_messages,
+            reverse=True,
+        )
+
+
+# ========== 数据存储 ==========
 _processed_list_lock = asyncio.Lock()
 _processed_list_cache: Dict[str, List] | None = None
 _MAX_PROCESSED_FEEDS = 500  # 最多记录500条说说
@@ -129,7 +303,9 @@ async def _mark_processed(fid: str, comment_tid=None) -> bool:
         except Exception as e:
             logger.error(f"保存已处理说说失败: {str(e)}")
             return False
-    
+
+
+# ========== 发送说说 ==========
 async def send_feed(topic: str) -> Tuple[bool, str]:
     """
     根据主题和配置生成文本和图片，发送至QQ空间，返回是否发送成功和发送结果。
@@ -144,7 +320,8 @@ async def send_feed(topic: str) -> Tuple[bool, str]:
     """
     logger = plugin_context.ctx.logger  # type: ignore
     config = plugin_context.config  # type: ignore
-    # ===== 根据主题和历史说说生成内容 =====
+
+    # ===== 1. 构建基础 prompt =====
     prompt_pattern = plugin_context.config.send.prompt # type: ignore
     prompt = prompt_pattern.format(
         bot_personality=plugin_context.personality, # type: ignore
@@ -152,23 +329,44 @@ async def send_feed(topic: str) -> Tuple[bool, str]:
         topic=topic,
         bot_expression=plugin_context.reply_style # type: ignore
     )
+
+    # ===== 2. 获取聊天记录素材 =====
+    chat_messages, chat_text = await _fetch_chat_messages()
+
+    # 如果有聊天记录素材，插入 prompt（在历史说说之前）
+    if chat_text:
+        prompt += f"\n\n【今日聊天记录】\n{chat_text}\n"
+        logger.info(f"已插入聊天记录素材，长度: {len(chat_text)}")
+
+    # ===== 3. 获取历史说说（去重参考） =====
     await renew_cookies(config.plugin.http_host, config.plugin.http_port, config.plugin.napcat_token) # type: ignore
     qzone = create_qzone_api()
     if not qzone:
         logger.error("创建QzoneAPI实例失败，无法发送说说")
         return False, "发送说说失败"
+
     history = await qzone.get_send_history(config.send.history_number) # type: ignore
     prompt += "\n以下是你近期发布过的说说，请勿在短时间内发布重复内容：\n"
     prompt += history
 
+    # ===== 4. LLM 生成说说内容 =====
+    logger.debug(f"完整 Prompt:\n{prompt}")
+
     llm_response = await plugin_context.ctx.llm.generate(prompt, model=config.plugin.text_model) # type: ignore
     message = llm_response.get("response", "")
     logger.info(f"已生成说说：{message}")
-    # ===== 根据内容生成图片 =====
+
+    # ===== 5. 根据内容生成图片 =====
     images_list: list[bytes] = []
     if config.send.enable_image: # type: ignore
-        images_list = await generate_images(message, config.send.image_mode, config.send.image_number, config.send.ai_probability) # type: ignore
-    # ===== 发布说说 =====
+        images_list = await generate_images(
+            message,
+            config.send.image_mode,
+            config.send.image_number,
+            config.send.ai_probability
+        )
+
+    # ===== 6. 发布说说 =====
     result = await qzone.publish_emotion(message, images_list)
     if result is not None:
         logger.info(f"发布说说ID：{result}")
@@ -177,6 +375,8 @@ async def send_feed(topic: str) -> Tuple[bool, str]:
         logger.error("发送说说失败")
         return False, "说说发布失败"
 
+
+# ========== 阅读特定用户空间 ==========
 async def read_feed(target_qq: str, enable_comment: bool = True) -> Tuple[bool, list[dict[str, Any]]]:
     """
     阅读指定QQ号最近的动态，根据配置进行点赞回复，并返回结果
@@ -275,6 +475,8 @@ async def read_feed(target_qq: str, enable_comment: bool = True) -> Tuple[bool, 
         await _mark_processed(fid)
     return True, feeds_list
 
+
+# ========== 监控好友动态 ==========
 async def monitor_read_feed() -> Tuple[bool, list[dict[str, Any]]]:
     """
     读取空间下最新说说并根据配置进行点赞、评论等操作
@@ -374,6 +576,8 @@ async def monitor_read_feed() -> Tuple[bool, list[dict[str, Any]]]:
 
     return True, feeds_list
 
+
+# ========== 自动回复评论 ==========
 async def reply_feed() -> Tuple[bool, str]:
     """
     根据配置自动回复说说
@@ -473,6 +677,8 @@ async def reply_feed() -> Tuple[bool, str]:
             await _mark_processed(fid, comment['comment_tid'])
     return True, f"回复了{reply_count}条新评论"
 
+
+# ========== 辅助格式化函数 ==========
 def format_feed_list(feed_list: List[Dict]) -> str:
     """
     格式化说说列表为分层清晰的字符串以便显示

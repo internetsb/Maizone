@@ -213,7 +213,7 @@ async def fetch_cookies_by_adapter() -> dict | None:
         return None
     else:
         # 与Napcat处理方法一致
-        result = await api.call("maibot-team.napcat-adapter.adapter.napcat.account.get_cookies", params={"domain": domain})
+        result = await api.call("adapter.napcat.account.get_cookies", params={"domain": domain})
         if result.get("status") != "ok" or "cookies" not in result.get("data", {}):
             logger.error(f"获取 cookie 失败: {result}")
             return None
