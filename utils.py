@@ -25,77 +25,47 @@ def set_utils_plugin_context(ctx):
     set_chat_fetcher_logger(ctx.ctx.logger)
 
 
-# 数据存储
-_processed_list_lock = asyncio.Lock()
-_processed_list_cache: Dict[str, List] | None = None
-_MAX_PROCESSED_FEEDS = 500  # 最多记录500条说说
-_MAX_PROCESSED_COMMENTS = 100  # 每条说说最多记录100条已处理评论
+# ========== 智能跳过评论辅助函数 ==========
+def _is_skip_comment(text) -> bool:
+    """LLM 选择不评论时返回 True。"""
+    if text is None:
+        return True
+    t = str(text).strip()
+    if not t:
+        return True
+    for _ in range(2):
+        t = t.strip().strip("\"'“”‘’`")
+        if len(t) >= 2 and t[0] in "[(（【" and t[-1] in "])）】":
+            t = t[1:-1].strip()
+    normalized = "".join(t.split()).lower()
+    return normalized in {
+        "不回复", "不评论", "跳过", "无", "无评论",
+        "无需回复", "不用回复", "不必回复",
+        "skip", "none", "n/a", "na", "null",
+    }
 
 
-def _processed_list_path() -> str:
-    return str(Path(__file__).parent.resolve() / "processed_list.json")
+_SKIP_PROMPT_SUFFIX = (
+    "。如果你觉得没必要评论（内容无感、不适合插嘴、太隐私、广告、重复水帖等），"
+    "只输出三个字：不回复；否则只输出评论正文"
+)
+
+def _with_skip_prompt(prompt: str, allow_skip: bool) -> str:
+    if not allow_skip:
+        return prompt
+    if "不回复" in prompt:
+        return prompt
+    return prompt.rstrip() + _SKIP_PROMPT_SUFFIX
 
 
-async def _get_processed_list() -> Dict[str, List]:
-    """
-    获取已处理说说及评论字典，格式为 { "说说tid": [已处理评论tid1, 已处理评论tid2, ...], ... }
-    进程内所有调用方共享同一个dict，避免各自加载副本、最后整体覆盖保存造成丢失更新。
-    """
-    global _processed_list_cache
-    if _processed_list_cache is not None:
-        return _processed_list_cache
-    logger = plugin_context.ctx.logger  # type: ignore
-    async with _processed_list_lock:
-        if _processed_list_cache is None:
-            file_path = _processed_list_path()
-            if os.path.exists(file_path):
-                try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        _processed_list_cache = json.load(f)
-                except Exception as e:
-                    logger.error(f"加载已处理说说失败: {str(e)}")
-                    _processed_list_cache = {}
-            else:
-                logger.warning("未找到已处理说说列表，将创建新列表")
-                _processed_list_cache = {}
-    return _processed_list_cache
+def _allow_skip_comment(config) -> bool:
+    read_cfg = getattr(config, "read", None)
+    if read_cfg is None:
+        return True
+    return bool(getattr(read_cfg, "allow_skip_comment", True))
 
 
-async def _mark_processed(fid: str, comment_tid=None) -> bool:
-    """
-    标记一条说说（及可选的其中一条评论）为已处理，并立即原子落盘。
-    每次标记都会把该说说移到字典末尾（LRU），仍然出现在最近列表中的说说
-    不会被容量裁剪淘汰，从而避免重复评论/重复回复。
-    Args:
-        fid: 说说tid
-        comment_tid: 已处理的评论tid，None表示仅标记说说本身
-    Returns:
-        bool: 落盘是否成功（内存中的标记总是生效）。
-    """
-    logger = plugin_context.ctx.logger  # type: ignore
-    processed_list = await _get_processed_list()
-    async with _processed_list_lock:
-        comments = processed_list.pop(fid, [])
-        if comment_tid is not None and comment_tid not in comments:
-            comments.append(comment_tid)
-            if len(comments) > _MAX_PROCESSED_COMMENTS:
-                comments = comments[-_MAX_PROCESSED_COMMENTS:]
-        processed_list[fid] = comments
-        while len(processed_list) > _MAX_PROCESSED_FEEDS:
-            processed_list.pop(next(iter(processed_list)))
-        try:
-            file_path = _processed_list_path()
-            tmp_path = file_path + ".tmp"
-            with open(tmp_path, 'w', encoding='utf-8') as f:
-                json.dump(processed_list, f, ensure_ascii=False, indent=2)
-            os.replace(tmp_path, file_path)
-            return True
-        except Exception as e:
-            logger.error(f"保存已处理说说失败: {str(e)}")
-            return False
-
-
-# ===== 新增：聊天记录处理函数 =====
+# ========== 聊天记录处理函数 ==========
 async def _fetch_chat_messages() -> Tuple[List[Dict[str, Any]], str]:
     """
     根据配置抓取聊天记录，返回 (消息列表, 处理后的文本素材)。
@@ -265,7 +235,77 @@ async def _process_chat_messages_by_mode(messages: List[Dict[str, Any]], send_co
         )
 
 
-# ===== 原有函数 =====
+# ========== 数据存储 ==========
+_processed_list_lock = asyncio.Lock()
+_processed_list_cache: Dict[str, List] | None = None
+_MAX_PROCESSED_FEEDS = 500  # 最多记录500条说说
+_MAX_PROCESSED_COMMENTS = 100  # 每条说说最多记录100条已处理评论
+
+
+def _processed_list_path() -> str:
+    return str(Path(__file__).parent.resolve() / "processed_list.json")
+
+
+async def _get_processed_list() -> Dict[str, List]:
+    """
+    获取已处理说说及评论字典，格式为 { "说说tid": [已处理评论tid1, 已处理评论tid2, ...], ... }
+    进程内所有调用方共享同一个dict，避免各自加载副本、最后整体覆盖保存造成丢失更新。
+    """
+    global _processed_list_cache
+    if _processed_list_cache is not None:
+        return _processed_list_cache
+    logger = plugin_context.ctx.logger  # type: ignore
+    async with _processed_list_lock:
+        if _processed_list_cache is None:
+            file_path = _processed_list_path()
+            if os.path.exists(file_path):
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        _processed_list_cache = json.load(f)
+                except Exception as e:
+                    logger.error(f"加载已处理说说失败: {str(e)}")
+                    _processed_list_cache = {}
+            else:
+                logger.warning("未找到已处理说说列表，将创建新列表")
+                _processed_list_cache = {}
+    return _processed_list_cache
+
+
+async def _mark_processed(fid: str, comment_tid=None) -> bool:
+    """
+    标记一条说说（及可选的其中一条评论）为已处理，并立即原子落盘。
+    每次标记都会把该说说移到字典末尾（LRU），仍然出现在最近列表中的说说
+    不会被容量裁剪淘汰，从而避免重复评论/重复回复。
+    Args:
+        fid: 说说tid
+        comment_tid: 已处理的评论tid，None表示仅标记说说本身
+    Returns:
+        bool: 落盘是否成功（内存中的标记总是生效）。
+    """
+    logger = plugin_context.ctx.logger  # type: ignore
+    processed_list = await _get_processed_list()
+    async with _processed_list_lock:
+        comments = processed_list.pop(fid, [])
+        if comment_tid is not None and comment_tid not in comments:
+            comments.append(comment_tid)
+            if len(comments) > _MAX_PROCESSED_COMMENTS:
+                comments = comments[-_MAX_PROCESSED_COMMENTS:]
+        processed_list[fid] = comments
+        while len(processed_list) > _MAX_PROCESSED_FEEDS:
+            processed_list.pop(next(iter(processed_list)))
+        try:
+            file_path = _processed_list_path()
+            tmp_path = file_path + ".tmp"
+            with open(tmp_path, 'w', encoding='utf-8') as f:
+                json.dump(processed_list, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, file_path)
+            return True
+        except Exception as e:
+            logger.error(f"保存已处理说说失败: {str(e)}")
+            return False
+
+
+# ========== 发送说说 ==========
 async def send_feed(topic: str) -> Tuple[bool, str]:
     """
     根据主题和配置生成文本和图片，发送至QQ空间，返回是否发送成功和发送结果。
@@ -336,11 +376,13 @@ async def send_feed(topic: str) -> Tuple[bool, str]:
         return False, "说说发布失败"
 
 
-async def read_feed(target_qq: str) -> Tuple[bool, list[dict[str, Any]]]:
+# ========== 阅读特定用户空间 ==========
+async def read_feed(target_qq: str, enable_comment: bool = True) -> Tuple[bool, list[dict[str, Any]]]:
     """
     阅读指定QQ号最近的动态，根据配置进行点赞回复，并返回结果
     Args:
         target_qq: 需要阅读的QQ号
+        enable_comment: 是否允许评论；False 时只读/点赞，不发表评论
 
     Returns:
         Tuple[bool, list[dict[str, Any]]]: 返回一个元组，第一个元素表示是否成功，第二个元素为目标空间内容的列表或错误信息。
@@ -366,6 +408,7 @@ async def read_feed(target_qq: str) -> Tuple[bool, list[dict[str, Any]]]:
     # ===== 逐条点赞、回复 =====
     like_probability = config.read.like_probability  # type: ignore
     comment_probability = config.read.comment_probability  # type: ignore
+    allow_skip = _allow_skip_comment(config)
     try:
         target_user_info = await plugin_context.ctx.db.get(model_name="PersonInfo", filters={"user_id": target_qq})  # type: ignore
     except Exception:
@@ -389,8 +432,8 @@ async def read_feed(target_qq: str) -> Tuple[bool, list[dict[str, Any]]]:
         rt_con = feed.get("rt_con", "")
         current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         try:
-            # 进行评论
-            if random.random() <= comment_probability:
+            # 进行评论（可关闭；也可由 LLM 选择不回复）
+            if enable_comment and random.random() <= comment_probability:
                 data = {
                         "current_time": current_time,
                         "created_time": feed['created_time'],
@@ -405,15 +448,20 @@ async def read_feed(target_qq: str) -> Tuple[bool, list[dict[str, Any]]]:
                 else:
                     prompt_pre = config.read.rt_prompt
                     data["rt_con"] = rt_con
-                prompt = prompt_pre.format(**data)
+                prompt = _with_skip_prompt(prompt_pre.format(**data), allow_skip)
                 logger.info(f"LLM生成prompt：{prompt}")
                 llm_response = await plugin_context.ctx.llm.generate(prompt, model=config.plugin.text_model)  # type: ignore
                 comment_message = llm_response.get("response", "")
-                result = await qzone.comment(fid, target_qq, comment_message)
-                if result:
-                    logger.info(f"评论成功：{comment_message}")
+                if allow_skip and _is_skip_comment(comment_message):
+                    logger.info(f"选择不评论说说 {fid}: {comment_message!r}")
                 else:
-                    logger.error("评论失败")
+                    result = await qzone.comment(fid, target_qq, comment_message)
+                    if result:
+                        logger.info(f"评论成功：{comment_message}")
+                    else:
+                        logger.error("评论失败")
+            elif not enable_comment:
+                logger.info(f"本次读空间关闭评论，跳过说说 {fid}")
             # 进行点赞
             if random.random() <= like_probability:
                 result = await qzone.like(fid, target_qq)
@@ -428,6 +476,7 @@ async def read_feed(target_qq: str) -> Tuple[bool, list[dict[str, Any]]]:
     return True, feeds_list
 
 
+# ========== 监控好友动态 ==========
 async def monitor_read_feed() -> Tuple[bool, list[dict[str, Any]]]:
     """
     读取空间下最新说说并根据配置进行点赞、评论等操作
@@ -455,6 +504,7 @@ async def monitor_read_feed() -> Tuple[bool, list[dict[str, Any]]]:
     # 点赞、评论等操作
     like_possibility = config.read.like_probability  # type: ignore
     comment_possibility = config.read.comment_probability  # type: ignore
+    allow_skip = _allow_skip_comment(config)
     for feed in feeds_list:
         # 跳过黑名单QQ
         if feed["target_qq"] in black_list:
@@ -474,7 +524,7 @@ async def monitor_read_feed() -> Tuple[bool, list[dict[str, Any]]]:
         target_qq = feed["target_qq"]
         rt_con = feed.get("rt_con", "")
         try:
-            # 进行评论
+            # 进行评论（可由 LLM 选择不回复）
             if random.random() <= comment_possibility:
                 # 根据配置生成评论内容
                 try:
@@ -500,15 +550,18 @@ async def monitor_read_feed() -> Tuple[bool, list[dict[str, Any]]]:
                 else:
                     prompt_pre = config.read.rt_prompt
                     data["rt_con"] = rt_con
-                prompt = prompt_pre.format(**data)
+                prompt = _with_skip_prompt(prompt_pre.format(**data), allow_skip)
                 logger.info(f"正在评论'{target_qq}'的说说：{content[:30]}...")
                 response = await plugin_context.ctx.llm.generate(prompt, model=config.plugin.text_model)  # type: ignore
                 comment = response.get("response", "")
-                result = await qzone.comment(fid, target_qq, comment)
-                if result:
-                    logger.info(f"成功对说说'{content[:30]}...'发表评论：{comment}")
+                if allow_skip and _is_skip_comment(comment):
+                    logger.info(f"选择不评论'{target_qq}'的说说：{comment!r}")
                 else:
-                    logger.error(f"对说说'{content[:30]}...'发表评论失败")
+                    result = await qzone.comment(fid, target_qq, comment)
+                    if result:
+                        logger.info(f"成功对说说'{content[:30]}...'发表评论：{comment}")
+                    else:
+                        logger.error(f"对说说'{content[:30]}...'发表评论失败")
             # 进行点赞
             if random.random() <= like_possibility:
                 result = await qzone.like(fid, target_qq)
@@ -524,6 +577,7 @@ async def monitor_read_feed() -> Tuple[bool, list[dict[str, Any]]]:
     return True, feeds_list
 
 
+# ========== 自动回复评论 ==========
 async def reply_feed() -> Tuple[bool, str]:
     """
     根据配置自动回复说说
@@ -624,6 +678,7 @@ async def reply_feed() -> Tuple[bool, str]:
     return True, f"回复了{reply_count}条新评论"
 
 
+# ========== 辅助格式化函数 ==========
 def format_feed_list(feed_list: List[Dict]) -> str:
     """
     格式化说说列表为分层清晰的字符串以便显示

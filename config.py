@@ -147,42 +147,33 @@ class ReadConfig(PluginConfigBase):
     __ui_order__ = 2
 
     # 其它配置
-    read_number: int = Field(
-        default=5,
-        description="读取的说说数量"
-    )
-    like_probability: float = Field(
-        default=1.0,
-        description="读每条说说后点赞的概率"
-    )
-    comment_probability: float = Field(
-        default=1.0,
-        description="读每条说说后评论的概率"
+    read_number: int = Field(default=5, description="读取的说说数量")
+    like_probability: float = Field(default=1.0, description="读每条说说后点赞的概率")
+    comment_probability: float = Field(default=1.0, description="读每条说说后评论的概率")
+    allow_skip_comment: bool = Field(
+        default=True,
+        description="读别人空间时是否允许模型选择不评论（输出「不回复」则跳过）",
     )
     # 提示词相关配置
-    prompt: str = Field(
-        default="你是'{bot_personality}'，你正在浏览你好友'{target_name}'的QQ空间，你看到了你的好友'{target_name}'"
-                "在qq空间上在'{created_time}'发了一条内容是'{content}'的说说，你想要发表你的一条评论，现在是'{current_time}'"
-                "你对'{target_name}'的印象是'{impression}'，若与你的印象点相关，可以适当评论相关内容，无关则忽略此印象，"
-                "{bot_expression}，回复的平淡一些，简短一些，说中文，不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，不要输出多余内容"
-                "(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。只输出回复内容",
-        description="对无转发内容说说进行评论的提示词，占位符包括{current_time}（当前时间），{bot_personality}（人格），"
-                    "{target_name}（说说主人名称），{created_time}（说说发布时间），"
-                    "{content}（说说内容），{impression}（对说说主人的印象点），{bot_expression}（表达方式）"
-    )
-    rt_prompt: str = Field(
-        default="你是'{bot_personality}'，你正在浏览你好友'{target_name}'的QQ空间，你看到了你的好友'{target_name}'"
-                "在qq空间上在'{created_time}'转发了一条内容为'{rt_con}'的说说，你的好友的评论为'{content}'，你对'{"
-                "target_name}'的印象是'{impression}'，若与你的印象点相关，可以适当评论相关内容，无关则忽略此印象，"
-                "现在是'{current_time}'，你想要发表你的一条评论，{bot_expression}，"
-                "回复的平淡一些，简短一些，说中文，不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，"
-                "不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。只输出回复内容",
-        description="对转发的说说进行评论的提示词，占位符包括{current_time}（当前时间），{bot_personality}（人格），{"
-                    "target_name}（说说主人名称），{created_time}（说说发布时间），{"
-                    "content}（说说评论内容），{rt_con}（转发说说内容），{impression}（对说说主人的印象点），{"
-                    "bot_expression}（表达方式）"
-    )
-
+    prompt: str = Field(default="你是'{bot_personality}'，你正在浏览你好友'{target_name}'的QQ空间，你看到了你的好友'{target_name}'"
+                                "在qq空间上在'{created_time}'发了一条内容是'{content}'的说说，现在是'{current_time}'"
+                                "你对'{target_name}'的印象是'{impression}'，若与你的印象点相关，可以适当评论相关内容，无关则忽略此印象，"
+                                "{bot_expression}，回复的平淡一些，简短一些，说中文，不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，不要输出多余内容"
+                                "(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。若没必要评论只输出不回复，否则只输出评论正文", 
+                        description="对无转发内容说说进行评论的提示词，占位符包括{current_time}（当前时间），{bot_personality}（人格），"
+                                    "{target_name}（说说主人名称），{created_time}（说说发布时间），"
+                                    "{content}（说说内容），{impression}（对说说主人的印象点），{bot_expression}（表达方式）"
+                    )
+    rt_prompt: str =  Field(default="你是'{bot_personality}'，你正在浏览你好友'{target_name}'的QQ空间，你看到了你的好友'{target_name}'"
+                                    "在qq空间上在'{created_time}'转发了一条内容为'{rt_con}'的说说，你的好友的评论为'{content}'，你对'{"
+                                    "target_name}'的印象是'{impression}'，若与你的印象点相关，可以适当评论相关内容，无关则忽略此印象，"
+                                    "现在是'{current_time}'，{bot_expression}，"
+                                    "回复的平淡一些，简短一些，说中文，不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，"
+                                    "不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。若没必要评论只输出不回复，否则只输出评论正文",
+                            description="对转发的说说进行评论的提示词，占位符包括{current_time}（当前时间），{bot_personality}（人格），{"
+                                        "target_name}（说说主人名称），{created_time}（说说发布时间），{"
+                                        "content}（说说评论内容），{rt_con}（转发说说内容），{impression}（对说说主人的印象点），{"
+                                        "bot_expression}（表达方式）")
 
 class AutoSendConfig(PluginConfigBase):
     """自动发说说配置"""
