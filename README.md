@@ -46,6 +46,12 @@ git clone https://github.com/internetsb/Maizone.git
 
 正常情况下，麦麦会获取该目标账号最近的动态并点赞评论
 
+可选不评论：
+
+- 指令：`/readfeed <qq昵称> 不回复`
+- 工具参数：`enable_comment=false`（也可用「不回复」「否」）
+- 配置：`[read] allow_skip_comment = true`（默认开）时，模型也可只输出 `不回复` 跳过评论
+
 ### 四、自动发送
 
 默认关闭
