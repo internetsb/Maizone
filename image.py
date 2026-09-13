@@ -120,7 +120,7 @@ async def generate_ai_image(message: str, images_prompt: list[str] | None = None
     # 构建提示词
     prompt = prompt_template.format(personality=personality, message=message) + ref_prompt
     prompt += f"已使用过的配图提示词：{used if used else '无'}。"
-    response = await plugin_context.ctx.llm.generate(prompt, model=text_model)  # type: ignore
+    response = await plugin_context.ctx.llm.generate(prompt, task_name=text_model)  # type: ignore
     image_prompt = response.get("response", "")
     logger.info(f"生成的图片提示词：{image_prompt}")
     if images_prompt is not None:
@@ -191,4 +191,4 @@ def test_generate_images():
         f.write(image_bytes)
 
 if __name__ == "__main__":
-    test_generate_images() 
+    test_generate_images()
