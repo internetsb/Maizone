@@ -159,7 +159,7 @@ async def _process_chat_messages_by_mode(messages: List[Dict[str, Any]], send_co
             prompt = send_config.summary_prompt.format(chat_logs=raw_text)
             response = await plugin_context.ctx.llm.generate(
                 prompt,
-                model=send_config.summary_model
+                task_name=send_config.summary_model
             )
             summary = response.get("response", "")
             if summary:
@@ -208,7 +208,7 @@ async def _process_chat_messages_by_mode(messages: List[Dict[str, Any]], send_co
                 prompt = send_config.summary_prompt.format(chat_logs=older_raw)
                 response = await plugin_context.ctx.llm.generate(
                     prompt,
-                    model=send_config.summary_model
+                    task_name=send_config.summary_model
                 )
                 summary = response.get("response", "")
                 if summary:
@@ -352,7 +352,7 @@ async def send_feed(topic: str) -> Tuple[bool, str]:
     # ===== 4. LLM 生成说说内容 =====
     logger.debug(f"完整 Prompt:\n{prompt}")
 
-    llm_response = await plugin_context.ctx.llm.generate(prompt, model=config.plugin.text_model) # type: ignore
+    llm_response = await plugin_context.ctx.llm.generate(prompt, task_name=config.plugin.text_model) # type: ignore
     message = llm_response.get("response", "")
     logger.info(f"已生成说说：{message}")
 
@@ -450,7 +450,7 @@ async def read_feed(target_qq: str, enable_comment: bool = True) -> Tuple[bool, 
                     data["rt_con"] = rt_con
                 prompt = _with_skip_prompt(prompt_pre.format(**data), allow_skip)
                 logger.info(f"LLM生成prompt：{prompt}")
-                llm_response = await plugin_context.ctx.llm.generate(prompt, model=config.plugin.text_model)  # type: ignore
+                llm_response = await plugin_context.ctx.llm.generate(prompt, task_name=config.plugin.text_model)  # type: ignore
                 comment_message = llm_response.get("response", "")
                 if allow_skip and _is_skip_comment(comment_message):
                     logger.info(f"选择不评论说说 {fid}: {comment_message!r}")
@@ -552,7 +552,7 @@ async def monitor_read_feed() -> Tuple[bool, list[dict[str, Any]]]:
                     data["rt_con"] = rt_con
                 prompt = _with_skip_prompt(prompt_pre.format(**data), allow_skip)
                 logger.info(f"正在评论'{target_qq}'的说说：{content[:30]}...")
-                response = await plugin_context.ctx.llm.generate(prompt, model=config.plugin.text_model)  # type: ignore
+                response = await plugin_context.ctx.llm.generate(prompt, task_name=config.plugin.text_model)  # type: ignore
                 comment = response.get("response", "")
                 if allow_skip and _is_skip_comment(comment):
                     logger.info(f"选择不评论'{target_qq}'的说说：{comment!r}")
@@ -655,7 +655,7 @@ async def reply_feed() -> Tuple[bool, str]:
                 }
                 prompt = prompt_pre.format(**data)
                 logger.info(f"正在回复{comment['nickname']}的评论'{comment['content'][:30]}...'")
-                response = await plugin_context.ctx.llm.generate(prompt, model=config.plugin.text_model)  # type: ignore
+                response = await plugin_context.ctx.llm.generate(prompt, task_name=config.plugin.text_model)  # type: ignore
                 reply_message = response.get("response", "")
                 await renew_cookies(config.plugin.http_host, config.plugin.http_port, config.plugin.napcat_token)
                 result = await qzone.reply(
