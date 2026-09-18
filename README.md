@@ -6,7 +6,7 @@
 
 ## 概述
 
-Maizone（麦麦空间）插件v3.0.2，让你的麦麦发说说，读QQ空间，点赞评论！
+Maizone（麦麦空间）插件v3.0.3，让你的麦麦发说说，读QQ空间，点赞评论！
 
 ## 功能
 
@@ -22,9 +22,14 @@ Maizone（麦麦空间）插件v3.0.2，让你的麦麦发说说，读QQ空间�
 
 ### 一、安装插件
 
-1. 安装并启用[Napcat_Adapter](https://docs.mai-mai.org/manual/adapters/napcat.html)插件，并进行相应配置。SnowLuma配置请查看常见问题
-2. 从插件商店下载本插件、或克隆本仓库至 `MaiBot\plugins` 文件夹下
-3. 命令运行较为耗时，建议修改主程序的插件运行超时阈值
+1. 安装并启用`SnowLuma_Adapter`（默认推荐）或`Napcat_Adapter`插件，确认可正常进行聊天
+2. 从插件商店下载本插件、或克隆本仓库至 `MaiBot\plugins` 文件夹下，配置插件文件夹中的`_manifest.json`中`dependencies`节(第26行左右)为Napcat_Adapter或SnowLuma的依赖：
+```
+"id": "maibot-team.snowluma-adapter",
+或
+"id": "maibot-team.napcat-adapter",
+```
+3. 根据配置文件中的注释调整配置
 
 ```bash
 git clone https://github.com/internetsb/Maizone.git
@@ -38,19 +43,18 @@ git clone https://github.com/internetsb/Maizone.git
 
 - `history_number`：生成新说说时回顾的旧说说数，可用于减少重复，会增加token消耗
 - `enable_image`：是否在发说说时附带配图
-- `image_mode`：决定配图为表情包、或是AI生成（需进一步配置）、或是二者混合随机
+- `image_mode`：决定配图为表情包(only_emoji)、或是AI生成（only_ai，需进一步配置）、或是二者混合随机(random)
+- `enable_chat_memory`：是否在生成新说说时回顾今日聊天记录，增加上下文作为说说素材
 
 ### 三、阅读说说
 
-使用命令：`/readfeed <qq昵称>` 或 自然语言（如："麦麦读下我的qq空间"）
+使用命令：`/readfeed <qq昵称> [不回复]` 或 自然语言，如："麦麦读下我的qq空间，（但不要回复）"
 
-正常情况下，麦麦会获取该目标账号最近的动态并点赞评论
+正常情况下，麦麦会获取该目标账号最近的动态并点赞、评论（若允许），并读取空间内容增添到上下文
 
-可选不评论：
+部分配置说明：
 
-- 指令：`/readfeed <qq昵称> 不回复`
-- 工具参数：`enable_comment=false`（也可用「不回复」「否」）
-- 配置：`[read] allow_skip_comment = true`（默认开）时，模型也可只输出 `不回复` 跳过评论
+- allow_skip_comment：是否允许跳过评论，若开启则进行评论时模型可选择不评论某条说说
 
 ### 四、自动发送
 
@@ -172,7 +176,7 @@ self.ctx.logger.info(f"API 调用结果:{result}")
 
   **A：请检查插件目录下是否生成cookie，cookie中uin是否正确对应qq号，若错误请尝试使用以下备选方案**
 
-  1. **备选napcat/snowluma连接**
+  1. **备选napcat/snowluma http连接**
 
      在Napcat/SnowLuma中添加一个http服务器，
 
@@ -190,7 +194,7 @@ self.ctx.logger.info(f"API 调用结果:{result}")
      napcat_token = "自己设置的密钥"
      ```
 
-     若不使用Napcat-Adapter插件，请将_manifest.json中dependencies节去除对Napcat_Adapter的依赖：
+     若不使用插件，请将_manifest.json中dependencies节去除对Napcat_Adapter或SnowLuma的依赖：
 
       ```json
       {

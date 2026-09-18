@@ -46,7 +46,7 @@ class SendConfig(PluginConfigBase):
     # 图片模式
     image_mode: Literal["only_emoji", "only_ai", "random"] = Field(
         default="only_emoji",
-        description="图片使用方式",
+        description="图片使用方式（only_emoji: 仅表情包, only_ai: 仅AI生成, random: 随机混合）",
         json_schema_extra={
             "enum": ["only_emoji", "only_ai", "random"],
             "enum_titles": ["仅表情包", "仅AI生成", "随机混合"]
@@ -76,7 +76,7 @@ class SendConfig(PluginConfigBase):
 
     filter_mode: Literal["all", "whitelist", "blacklist"] = Field(
         default="all",
-        description="聊天记录过滤模式",
+        description="聊天记录过滤模式（all: 全部会话, whitelist: 白名单（仅以下会话）, blacklist: 黑名单（排除以下会话））",
         json_schema_extra={
             "enum": ["all", "whitelist", "blacklist"],
             "enum_titles": ["全部会话", "白名单（仅以下会话）", "黑名单（排除以下会话）"]
@@ -89,7 +89,7 @@ class SendConfig(PluginConfigBase):
 
     time_range: Literal["today", "last_n_hours"] = Field(
         default="today",
-        description="时间范围",
+        description="时间范围（today: 今天00:00到现在, last_n_hours: 最近N小时）",
         json_schema_extra={
             "enum": ["today", "last_n_hours"],
             "enum_titles": ["今天00:00到现在", "最近N小时"]
@@ -115,7 +115,7 @@ class SendConfig(PluginConfigBase):
 
     chat_memory_mode: Literal["direct", "summary", "hybrid"] = Field(
         default="hybrid",
-        description="聊天记录处理模式",
+        description="聊天记录处理模式（direct: 直接截断取最近N条, summary: LLM精简摘要, hybrid: 混合: 最近N条+更早摘要）",
         json_schema_extra={
             "enum": ["direct", "summary", "hybrid"],
             "enum_titles": ["直接截断取最近N条", "LLM精简摘要", "混合:最近N条+更早摘要"]
@@ -309,7 +309,7 @@ class AuthorityConfig(PluginConfigBase):
     # 发说说指令权限
     send_authority_type: Literal["blacklist", "whitelist"] = Field(
         default="blacklist",
-        description="发说说指令权限控制方式",
+        description="发说说指令权限控制方式（blacklist: 黑名单, whitelist: 白名单）",
         json_schema_extra={
             "enum": ["blacklist", "whitelist"],
             "enum_titles": ["黑名单（禁止以下QQ使用）", "白名单（仅允许以下QQ使用）"]
