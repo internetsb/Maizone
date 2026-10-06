@@ -2,8 +2,8 @@ import random
 import base64
 import asyncio
 from pathlib import Path
-from openai import OpenAI
-import requests
+from openai import AsyncOpenAI
+import httpx
 
 class NoLogger:
     def info(self, msg):
@@ -66,9 +66,9 @@ async def generate_image(
                 "image": f"data:image/{format};base64,{encoded_string}"
             }
 
-    client = OpenAI(base_url=base_url, api_key=api_key)
     logger.info(f"正在使用模型 {model} 生成图片: {prompt}")
-    response = client.images.generate(**body)
+    async with AsyncOpenAI(base_url=base_url, api_key=api_key) as client:
+        response = await client.images.generate(**body)
     if response is None or not response.data:
         logger.error("图片生成失败，未收到有效响应")
         return b''
@@ -76,9 +76,10 @@ async def generate_image(
     img = response.data[0]
     if img.url:
         logger.info("下载图片中...")
-        r = requests.get(img.url, timeout=30)
-        r.raise_for_status()
-        return r.content
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.get(img.url)
+            response.raise_for_status()
+            return response.content
     elif img.b64_json:
         logger.info("解码 base64 图片...")
         return base64.b64decode(img.b64_json)
