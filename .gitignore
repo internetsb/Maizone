@@ -10,3 +10,4 @@ config.toml
 reference.jpg
 cookies.json
 processed_list.json
+data/activity_log.jsonl
