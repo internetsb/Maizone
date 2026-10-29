@@ -112,6 +112,50 @@ def image_to_base64(image: bytes) -> str:
     return str(pic_base64)[2:-1]
 
 
+def _is_unavailable_content(content: Any) -> bool:
+    if not isinstance(content, str):
+        return False
+    text = "".join(content.split()).rstrip("。.!！")
+    return text in {
+        "功能内测中，内容暂不支持查看",
+        "功能内测中,内容暂不支持查看",
+    }
+
+
+def _repost_content(msg: dict) -> str:
+    repost = msg.get("rt_con")
+    content = repost.get("content", "") if isinstance(repost, dict) else repost
+    return content if isinstance(content, str) else ""
+
+
+def _emotion_media_urls(msg: dict) -> tuple[list[str], list[str]]:
+    """引用配图可能在说说本身，也可能在 rt_con 中，按原顺序去重。"""
+    images, videos = [], []
+    sources = [msg]
+    if isinstance(msg.get("rt_con"), dict):
+        sources.append(msg["rt_con"])
+    for source in sources:
+        for field, image_keys in (
+            ("pic", ("url1", "pic_id", "smallurl")),
+            ("video", ("url1", "pic_url")),
+        ):
+            items = source.get(field)
+            if not isinstance(items, list):
+                continue
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                for key in image_keys:
+                    url = item.get(key)
+                    if isinstance(url, str) and url.startswith(("https://", "http://", "//")):
+                        images.append("https:" + url if url.startswith("//") else url)
+                        break
+                url = item.get("url3") if field == "video" else None
+                if isinstance(url, str) and url.startswith(("https://", "http://", "//")):
+                    videos.append("https:" + url if url.startswith("//") else url)
+    return list(dict.fromkeys(images)), list(dict.fromkeys(videos))
+
+
 class QzoneAPI:
     # QQ空间url常量
     UPLOAD_IMAGE_URL = "https://up.qzone.qq.com/cgi-bin/upload/cgi_upload_image"
@@ -121,6 +165,7 @@ class QzoneAPI:
     REPLY_URL = "https://h5.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_re_feeds"
     LIST_URL = "https://user.qzone.qq.com/proxy/domain/taotao.qq.com/cgi-bin/emotion_cgi_msglist_v6"
     ZONE_LIST_URL = "https://user.qzone.qq.com/proxy/domain/ic2.qzone.qq.com/cgi-bin/feeds/feeds3_html_more"
+    DETAIL_URL = "https://h5.qzone.qq.com/proxy/domain/taotao.qq.com/cgi-bin/emotion_cgi_msgdetail_v6"
 
     def __init__(self, cookies_dict: dict = {}):
         self.cookies = cookies_dict
@@ -133,6 +178,47 @@ class QzoneAPI:
 
         if 'p_skey' in self.cookies:
             self.gtk2 = generate_gtk(self.cookies['p_skey'])
+
+    async def _get_emotion_detail(self, target_qq: str, tid: str) -> dict | None:
+        """补查电脑动态页不支持展示的说说，不改用被引用原帖的编号。"""
+        try:
+            async with httpx.AsyncClient(timeout=10, follow_redirects=True, cookies=self.cookies) as client:
+                res = await client.request(
+                    method="GET",
+                    url=self.DETAIL_URL,
+                    params={
+                        "uin": target_qq,
+                        "tid": tid,
+                        "g_tk": self.gtk2,
+                        "format": "json",
+                        "code_version": 1,
+                        "need_private_comment": 1,
+                    },
+                    headers={"Referer": f"https://user.qzone.qq.com/{target_qq}"},
+                )
+            if res.status_code != 200:
+                logger.warning(f"补查说说详情失败: HTTP {res.status_code}")
+                return None
+            detail = res.json()
+            if not isinstance(detail, dict) or detail.get("code") != 0:
+                logger.warning("说说详情不可访问或返回数据不合法")
+                return None
+            if str(detail.get("uin", "")) != str(target_qq) or str(detail.get("tid", "")) != str(tid):
+                logger.warning("说说详情与请求的作者或编号不一致，跳过")
+                return None
+            content = detail.get("content", "")
+            if content is not None and not isinstance(content, str):
+                return None
+            repost = _repost_content(detail)
+            if _is_unavailable_content(content) or _is_unavailable_content(repost):
+                return None
+            images, videos = _emotion_media_urls(detail)
+            if not (content or repost or images or videos):
+                return None
+            return detail
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.warning(f"补查说说详情失败: {type(exc).__name__}")
+            return None
 
     async def get_image_base64_by_url(self, url: str) -> str | None:
         """
@@ -515,17 +601,18 @@ class QzoneAPI:
         else:
             json_str = data
 
+        json_data = {}
         try:
             # 2. 解析JSON数据
             json_data = json.loads(json_str)
             logger.debug(f"原始说说数据: {json_data}")
-            uin_nickname = json_data.get('logininfo').get('name')
-            self.qq_nickname = uin_nickname
-
             if json_data.get('code') != 0:
                 return [{"error": json_data.get('message')}]
+            uin_nickname = (json_data.get('logininfo') or {}).get('name')
+            self.qq_nickname = uin_nickname
             # 3. 提取说说内容
             feeds_list = []
+            unavailable_feeds = False
             msglist = json_data.get("msglist") or []
             if not msglist:
                 logger.warning("msglist为空或None，返回空的说说列表")
@@ -543,6 +630,20 @@ class QzoneAPI:
                                 break
 
                 if not is_comment or not filter:
+                    detail = None
+                    if _is_unavailable_content(msg.get("content")) or _is_unavailable_content(_repost_content(msg)):
+                        detail = await self._get_emotion_detail(str(target_qq), str(msg.get("tid", "")))
+                        if detail is None:
+                            unavailable_feeds = True
+                            logger.warning("说说内容暂时无法读取，跳过本次处理，稍后重试")
+                            continue
+                        # 只替换正文和媒体，保留列表中发布者、编号、时间及评论。
+                        updates = {key: detail[key] for key in ("content", "rt_con", "pic", "video") if key in detail}
+                        if _is_unavailable_content(msg.get("content")):
+                            updates.setdefault("content", "")
+                        if _is_unavailable_content(_repost_content(msg)):
+                            updates.setdefault("rt_con", {})
+                        msg = {**msg, **updates}
                     # 存储结果
                     timestamp = msg.get("created_time", "")
                     if timestamp:
@@ -552,7 +653,7 @@ class QzoneAPI:
                     else:
                         created_time = msg.get("createTime", "unknown")
                     tid = msg.get("tid", "")
-                    content = msg.get("content", "")
+                    content = msg.get("content") or ""
                     logger.info(f"正在阅读说说内容: {content[:20]}...")
                     # 提取图片信息
                     images = []
@@ -570,27 +671,16 @@ class QzoneAPI:
                         except Exception as img_err:
                             logger.warning(f"获取图片描述失败: {img_err}")
 
-                    for pic in (msg.get("pic") or []):
-                        url = pic.get("url1") or pic.get("pic_id") or pic.get("smallurl")
+                    image_urls, videos = _emotion_media_urls(msg)
+                    for url in image_urls:
                         await append_image_description(url)
 
-                    # 读取视频封面（按图片处理）
-                    for video in (msg.get("video") or []):
-                        video_image_url = video.get("url1") or video.get("pic_url")
-                        await append_image_description(video_image_url)
-
-                    # 提取视频播放地址
-                    videos = []
-                    for video in (msg.get("video") or []):
-                        url = video.get("url3")
-                        if url:
-                            videos.append(url)
-
                     # 提取转发内容
-                    rt_con = ""
-                    rt_data = msg.get("rt_con") or {}
-                    if isinstance(rt_data, dict):
-                        rt_con = rt_data.get("content", "")
+                    rt_con = _repost_content(msg)
+                    if detail and not (content or rt_con or images or videos):
+                        unavailable_feeds = True
+                        logger.warning("说说配图暂时无法读取，稍后重试")
+                        continue
 
                     # 提取评论
                     def _safe_int(value):
@@ -645,6 +735,8 @@ class QzoneAPI:
                                        "rt_con": rt_con,
                                        "comments": comments})
             if len(feeds_list) == 0:
+                if unavailable_feeds:
+                    return [{"error": "这些说说暂时无法读取，请稍后重试"}]
                 return [{"error": '你已经看过最近的所有说说了，没有必要再看一遍'}]
             return feeds_list
 
@@ -748,8 +840,20 @@ class QzoneAPI:
                     # 分割掉昵称部分（从第一个冒号开始取内容）
                     if '：' in rt_con:
                         rt_con = rt_con.split('：', 1)[1].strip()
+                detail = None
+                if _is_unavailable_content(text) or _is_unavailable_content(rt_con):
+                    detail = await self._get_emotion_detail(str(target_qq), str(tid))
+                    if detail is None:
+                        # 不返回占位内容，避免被当作已读说说或用于生成评论。
+                        logger.warning("说说内容暂时无法读取，跳过本次处理，稍后重试")
+                        continue
+                    text = detail.get("content", "" if _is_unavailable_content(text) else text) or ""
+                    if "rt_con" in detail:
+                        rt_con = _repost_content(detail)
+                    elif _is_unavailable_content(rt_con):
+                        rt_con = ""
                 # 提取图片URL
-                image_urls = []
+                image_urls, videos = _emotion_media_urls(detail) if detail else ([], [])
                 # 查找所有图片容器
                 img_box = soup.find('div', class_='img-box')
                 if img_box:
@@ -762,7 +866,7 @@ class QzoneAPI:
                 if img_tag and 'src' in img_tag.attrs:
                     image_urls.append(img_tag['src'])
                 # 去重URL
-                unique_urls = list(set(image_urls))
+                unique_urls = list(dict.fromkeys(image_urls))
                 # 获取图片描述
                 images = []
                 for url in unique_urls:
@@ -776,10 +880,13 @@ class QzoneAPI:
                     except Exception as e:
                         logger.info(f'图片识别失败: {url} - {str(e)}')
                 # 获取视频url
-                videos = []
                 video_div = soup.select_one('div.img-box.f-video-wrap.play')
                 if video_div and 'url3' in video_div.attrs:
                     videos.append(video_div['url3'])
+                videos = list(dict.fromkeys(videos))
+                if detail and not (text or rt_con or images or videos):
+                    logger.warning("说说配图暂时无法读取，稍后重试")
+                    continue
                 # 获取评论内容
                 comments_list = []
                 # 查找所有评论项（包括主评论和回复）
