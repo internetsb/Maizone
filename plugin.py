@@ -1,6 +1,7 @@
 from maibot_sdk import Command, MaiBotPlugin, Tool, API
 from maibot_sdk.types import ToolParameterInfo, ToolParamType
 
+from . import activity_log
 from .config import MaizonePluginConfig
 from .cookie import renew_cookies, set_api_capability, set_cookie_logger
 from .qzone_api import create_qzone_api, set_qzoneapi_logger
@@ -135,6 +136,33 @@ class MaizonePlugin(MaiBotPlugin):
         # ===== 发送说说 =====
         success, message = await send_feed(topic)
         return success, message, 1
+
+    @Tool(
+        name="recall_qzone_activity",
+        description="查询自己最近在QQ空间发布、评论和回复过的内容。回答空间活动相关问题前使用",
+        parameters=[
+            ToolParameterInfo(
+                name="keyword",
+                param_type=ToolParamType.STRING,
+                description="可选的人名或话题关键词",
+                required=False,
+            ),
+            ToolParameterInfo(
+                name="limit",
+                param_type=ToolParamType.STRING,
+                description="返回条数，默认10，范围1到50",
+                required=False,
+            ),
+        ],
+        visibility="visible",
+    )
+    async def handle_recall_activity_tool(self, keyword: str = "", limit: str = "10", **kwargs):
+        try:
+            count = max(1, min(50, int(str(limit or "10").strip())))
+        except ValueError:
+            count = 10
+        entries = await activity_log.recent(limit=count, keyword=str(keyword or "").strip())
+        return True, activity_log.format_entries(entries), 1
 
     # ========== 阅读空间 ==========
     @Command("readfeed",pattern=r"^/readfeed\s+(?P<target_name>.+?)(?:\s+(?P<no_reply>不回复|不评论|noreply|no-reply|nocomment))?$")
