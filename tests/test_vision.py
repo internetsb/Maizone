@@ -410,6 +410,104 @@ def test_unload_clears_manager_even_when_timer_stop_fails(vision_module):
     run(scenario())
 
 
+@pytest.mark.parametrize("failed_timer", ["monitor", "sender", "both"])
+def test_unload_attempts_both_timers_before_clearing_manager(vision_module, failed_timer):
+    namespace, plugin, state = lifecycle_namespace(vision_module, True)
+    monitor_error = RuntimeError("monitor stop failed")
+    sender_error = RuntimeError("sender stop failed")
+
+    async def stop_monitor():
+        assert state.manager is not None
+        state.events.append("monitor-stop")
+        if failed_timer in {"monitor", "both"}:
+            raise monitor_error
+
+    async def stop_sender():
+        assert state.manager is not None
+        state.events.append("sender-stop")
+        if failed_timer in {"sender", "both"}:
+            raise sender_error
+
+    async def scenario():
+        await namespace["on_load"](plugin)
+        plugin.feed_monitor.stop = AsyncMock(side_effect=stop_monitor)
+        plugin.schedule_sender.stop = AsyncMock(side_effect=stop_sender)
+        with pytest.raises(RuntimeError) as caught:
+            await namespace["on_unload"](plugin)
+
+        plugin.feed_monitor.stop.assert_awaited_once()
+        plugin.schedule_sender.stop.assert_awaited_once()
+        assert state.events[-3:] == ["monitor-stop", "sender-stop", "clear"]
+        assert state.manager is None
+        assert caught.value is (monitor_error if failed_timer == "monitor" else sender_error)
+        if failed_timer == "both":
+            assert caught.value.__context__ is monitor_error
+
+    run(scenario())
+
+
+@pytest.mark.parametrize("cancelled_timer", ["monitor", "sender"])
+def test_unload_cancellation_still_attempts_other_timer(vision_module, cancelled_timer):
+    namespace, plugin, state = lifecycle_namespace(vision_module, True)
+    cancellation = asyncio.CancelledError()
+
+    async def stop_monitor():
+        assert state.manager is not None
+        state.events.append("monitor-stop")
+        if cancelled_timer == "monitor":
+            raise cancellation
+
+    async def stop_sender():
+        assert state.manager is not None
+        state.events.append("sender-stop")
+        if cancelled_timer == "sender":
+            raise cancellation
+
+    async def scenario():
+        await namespace["on_load"](plugin)
+        plugin.feed_monitor.stop = AsyncMock(side_effect=stop_monitor)
+        plugin.schedule_sender.stop = AsyncMock(side_effect=stop_sender)
+        with pytest.raises(asyncio.CancelledError) as caught:
+            await namespace["on_unload"](plugin)
+
+        assert caught.value is cancellation
+        plugin.feed_monitor.stop.assert_awaited_once()
+        plugin.schedule_sender.stop.assert_awaited_once()
+        assert state.events[-3:] == ["monitor-stop", "sender-stop", "clear"]
+        assert state.manager is None
+
+    run(scenario())
+
+
+@pytest.mark.parametrize("timer_name", ["feed_monitor", "schedule_sender"])
+@pytest.mark.parametrize("stop_fails", [False, True])
+def test_unload_with_only_one_timer(vision_module, timer_name, stop_fails):
+    namespace, plugin, state = lifecycle_namespace(vision_module, False)
+    stop_error = RuntimeError("single timer stop failed")
+
+    async def stop_timer():
+        assert state.manager is not None
+        state.events.append("single-stop")
+        if stop_fails:
+            raise stop_error
+
+    async def scenario():
+        await namespace["on_load"](plugin)
+        timer = SimpleNamespace(stop=AsyncMock(side_effect=stop_timer))
+        setattr(plugin, timer_name, timer)
+        if stop_fails:
+            with pytest.raises(RuntimeError) as caught:
+                await namespace["on_unload"](plugin)
+            assert caught.value is stop_error
+        else:
+            await namespace["on_unload"](plugin)
+        timer.stop.assert_awaited_once()
+        assert state.events == ["register", "single-stop", "clear"]
+        assert state.manager is None
+
+    run(scenario())
+
+
 def test_plugin_imports_the_real_manager_and_registration_hook():
     tree = ast.parse((ROOT / "plugin.py").read_text(encoding="utf-8"))
     imports = {

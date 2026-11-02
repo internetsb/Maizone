@@ -59,10 +59,12 @@ class MaizonePlugin(MaiBotPlugin):
     async def on_unload(self):
         """插件卸载：取消定时任务、清理资源等"""
         try:
-            if hasattr(self, "feed_monitor"):
-                await self.feed_monitor.stop()
-            if hasattr(self, "schedule_sender"):
-                await self.schedule_sender.stop()
+            try:
+                if hasattr(self, "feed_monitor"):
+                    await self.feed_monitor.stop()
+            finally:
+                if hasattr(self, "schedule_sender"):
+                    await self.schedule_sender.stop()
         finally:
             set_image_manager(None)
 

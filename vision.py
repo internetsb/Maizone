@@ -8,6 +8,8 @@ import hashlib
 from collections import OrderedDict
 from typing import Any
 
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+
 
 VISION_PROMPT = (
     "请用中文客观描述这张图片的画面、人物、场景和重要细节，并转录其中可辨认的文字。"
@@ -41,10 +43,14 @@ class SDKImageManager:
     async def get_image_description(self, image_base64: str) -> str:
         if not isinstance(image_base64, str) or not image_base64:
             raise ValueError("图片数据为空或格式错误")
+        if len(image_base64) > ((MAX_IMAGE_BYTES + 2) // 3) * 4:
+            raise ValueError("图片数据超过大小上限")
         try:
             image_bytes = base64.b64decode(image_base64, validate=True)
         except (binascii.Error, ValueError) as exc:
             raise ValueError("图片数据不是有效的 Base64") from exc
+        if len(image_bytes) > MAX_IMAGE_BYTES:
+            raise ValueError("图片数据超过大小上限")
         image_format = _image_format(image_bytes)
         key = hashlib.sha256(image_bytes).hexdigest()
         if key in self._cache:
