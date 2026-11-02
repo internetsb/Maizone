@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "id": "internetsb.maizone",
-  "version": "3.0.3",
+  "version": "3.0.4",
   "name": "Maizone（麦麦空间）",
   "description": "让麦麦阅读、评论、点赞、发送QQ空间。为插件提供发送说说接口",
   "author": {
