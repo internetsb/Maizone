@@ -10,6 +10,9 @@ import httpx
 import json5
 import bs4
 
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+_IMAGE_CHUNK_BYTES = 64 * 1024
+
 cookie_path = str(Path(__file__).parent.resolve() / "cookies.json")
 # ===== logger =====
 class NoLogger:
@@ -29,12 +32,12 @@ def set_qzoneapi_logger(custom_logger):
 # ===== Image Manager =====
 class NoImageManager:
     async def get_image_description(self, image_base64: str) -> str:
-        return "[图片]"
+        raise RuntimeError("图片识别服务尚未初始化")
 image_manager = NoImageManager()
 def set_image_manager(image_manager_instance):
     """设置image_manager实例"""
     global image_manager
-    image_manager = image_manager_instance
+    image_manager = image_manager_instance if image_manager_instance is not None else NoImageManager()
 # ===== 辅助函数 =====
 def generate_gtk(skey: str) -> str:
     """特定协议算法，生成QQ空间的gtk值"""
@@ -128,6 +131,15 @@ def _repost_content(msg: dict) -> str:
     return content if isinstance(content, str) else ""
 
 
+def _normalize_media_url(url: Any) -> str:
+    if not isinstance(url, str):
+        return ""
+    url = url.strip()
+    if url.startswith("//"):
+        url = "https:" + url
+    return url if url.startswith(("https://", "http://")) else ""
+
+
 def _emotion_media_urls(msg: dict) -> tuple[list[str], list[str]]:
     """引用配图可能在说说本身，也可能在 rt_con 中，按原顺序去重。"""
     images, videos = [], []
@@ -146,13 +158,13 @@ def _emotion_media_urls(msg: dict) -> tuple[list[str], list[str]]:
                 if not isinstance(item, dict):
                     continue
                 for key in image_keys:
-                    url = item.get(key)
-                    if isinstance(url, str) and url.startswith(("https://", "http://", "//")):
-                        images.append("https:" + url if url.startswith("//") else url)
+                    url = _normalize_media_url(item.get(key))
+                    if url:
+                        images.append(url)
                         break
-                url = item.get("url3") if field == "video" else None
-                if isinstance(url, str) and url.startswith(("https://", "http://", "//")):
-                    videos.append("https:" + url if url.startswith("//") else url)
+                url = _normalize_media_url(item.get("url3")) if field == "video" else ""
+                if url:
+                    videos.append(url)
     return list(dict.fromkeys(images)), list(dict.fromkeys(videos))
 
 
@@ -230,20 +242,42 @@ class QzoneAPI:
             Returns:
                 str: 图片的Base64编码字符串，如果获取失败则返回None。
         """
+        url = _normalize_media_url(url)
+        if not url:
+            logger.warning("图片地址无效或使用了不支持的协议")
+            return None
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-            "Referer": "https://qzone.qq.com/"
+            "Referer": "https://qzone.qq.com/",
+            "Accept-Encoding": "identity",
         }
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            request = httpx.Request("GET", url, headers=headers)
-            response = await client.send(request)
-
-        if response.status_code != 200:
-            logger.error(f"请求失败: {response.url} 状态码: {response.status_code}")
-            logger.error(f"原始URL: {url}")
+        try:
+            async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+                async with client.stream("GET", url, headers=headers) as response:
+                    if response.status_code != 200:
+                        logger.warning(f"图片下载失败，状态码: {response.status_code}")
+                        return None
+                    try:
+                        content_length = int(response.headers.get("Content-Length", "0"))
+                    except ValueError:
+                        content_length = 0
+                    if content_length > MAX_IMAGE_BYTES:
+                        logger.warning("图片超过下载大小上限，已跳过")
+                        return None
+                    image_data = bytearray()
+                    # 响应头可能缺失或少报大小，实际读取也必须限额。
+                    async for chunk in response.aiter_bytes(chunk_size=_IMAGE_CHUNK_BYTES):
+                        if len(image_data) + len(chunk) > MAX_IMAGE_BYTES:
+                            logger.warning("图片超过下载大小上限，已停止下载")
+                            return None
+                        image_data.extend(chunk)
+        except httpx.HTTPError as exc:
+            logger.warning(f"图片下载失败: {type(exc).__name__}")
             return None
-
-        return base64.b64encode(response.content).decode('utf-8')
+        if not image_data:
+            logger.warning("下载的图片内容为空")
+            return None
+        return base64.b64encode(image_data).decode("utf-8")
 
     async def upload_image(self, image: bytes) -> str | None:
         """
@@ -657,7 +691,6 @@ class QzoneAPI:
                     logger.info(f"正在阅读说说内容: {content[:20]}...")
                     # 提取图片信息
                     images = []
-                    # TODO 图片可读化
                     async def append_image_description(url: str):
                         if not url:
                             return
@@ -677,9 +710,9 @@ class QzoneAPI:
 
                     # 提取转发内容
                     rt_con = _repost_content(msg)
-                    if detail and not (content or rt_con or images or videos):
+                    if not (content.strip() or rt_con.strip() or images):
                         unavailable_feeds = True
-                        logger.warning("说说配图暂时无法读取，稍后重试")
+                        logger.warning("说说没有可读取的正文或图片描述，稍后重试")
                         continue
 
                     # 提取评论
@@ -858,13 +891,15 @@ class QzoneAPI:
                 img_box = soup.find('div', class_='img-box')
                 if img_box:
                     for img in img_box.find_all('img'):
-                        src = img.get('src')
-                        if src and isinstance(src, str) and not src.startswith('http://qzonestyle.gtimg.cn'):  # 过滤表情图标
+                        src = _normalize_media_url(img.get('src'))
+                        if src and not src.startswith(('http://qzonestyle.gtimg.cn', 'https://qzonestyle.gtimg.cn')):
                             image_urls.append(src)
                 # TODO 临时视频处理办法（视频缩略图）
                 img_tag = soup.select_one('div.video-img img')
-                if img_tag and 'src' in img_tag.attrs:
-                    image_urls.append(img_tag['src'])
+                if img_tag:
+                    src = _normalize_media_url(img_tag.get('src'))
+                    if src:
+                        image_urls.append(src)
                 # 去重URL
                 unique_urls = list(dict.fromkeys(image_urls))
                 # 获取图片描述
@@ -878,14 +913,16 @@ class QzoneAPI:
                         description = await image_manager.get_image_description(image_base64)
                         images.append(description)
                     except Exception as e:
-                        logger.info(f'图片识别失败: {url} - {str(e)}')
+                        logger.warning(f'图片识别失败: {url} - {str(e)}')
                 # 获取视频url
                 video_div = soup.select_one('div.img-box.f-video-wrap.play')
-                if video_div and 'url3' in video_div.attrs:
-                    videos.append(video_div['url3'])
+                if video_div:
+                    video_url = _normalize_media_url(video_div.get('url3'))
+                    if video_url:
+                        videos.append(video_url)
                 videos = list(dict.fromkeys(videos))
-                if detail and not (text or rt_con or images or videos):
-                    logger.warning("说说配图暂时无法读取，稍后重试")
+                if not (text.strip() or rt_con.strip() or images):
+                    logger.warning("说说没有可读取的正文或图片描述，稍后重试")
                     continue
                 # 获取评论内容
                 comments_list = []
