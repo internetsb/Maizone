@@ -3,8 +3,9 @@ from maibot_sdk.types import ToolParameterInfo, ToolParamType
 
 from .config import MaizonePluginConfig
 from .cookie import renew_cookies, set_api_capability, set_cookie_logger
-from .qzone_api import create_qzone_api, set_qzoneapi_logger
+from .qzone_api import create_qzone_api, set_image_manager, set_qzoneapi_logger
 from .image import set_images_plugin_context
+from .vision import SDKImageManager
 from .utils import set_utils_plugin_context, read_feed, send_feed
 from .tasks import FeedMonitor, ScheduleSender, set_tasks_logger
 
@@ -22,6 +23,8 @@ class MaizonePlugin(MaiBotPlugin):
         set_cookie_logger(self.ctx.logger)
         set_utils_plugin_context(self)
         set_images_plugin_context(self)
+        set_image_manager(SDKImageManager(self.ctx.llm))
+        self.ctx.logger.info("空间配图将通过主程序的 vlm 任务识别")
 
         # ===== 检查文本模型是否可用 =====
         available_models = await self.ctx.llm.get_available_models()
@@ -55,10 +58,13 @@ class MaizonePlugin(MaiBotPlugin):
 
     async def on_unload(self):
         """插件卸载：取消定时任务、清理资源等"""
-        if hasattr(self, "feed_monitor"):
-            await self.feed_monitor.stop()
-        if hasattr(self, "schedule_sender"):
-            await self.schedule_sender.stop()
+        try:
+            if hasattr(self, "feed_monitor"):
+                await self.feed_monitor.stop()
+            if hasattr(self, "schedule_sender"):
+                await self.schedule_sender.stop()
+        finally:
+            set_image_manager(None)
 
     async def on_config_update(self, scope: str, config_data: dict[str, object], version: str):
         """配置热更新回调"""

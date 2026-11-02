@@ -29,12 +29,12 @@ def set_qzoneapi_logger(custom_logger):
 # ===== Image Manager =====
 class NoImageManager:
     async def get_image_description(self, image_base64: str) -> str:
-        return "[图片]"
+        raise RuntimeError("图片识别服务尚未初始化")
 image_manager = NoImageManager()
 def set_image_manager(image_manager_instance):
     """设置image_manager实例"""
     global image_manager
-    image_manager = image_manager_instance
+    image_manager = image_manager_instance if image_manager_instance is not None else NoImageManager()
 # ===== 辅助函数 =====
 def generate_gtk(skey: str) -> str:
     """特定协议算法，生成QQ空间的gtk值"""
@@ -657,7 +657,6 @@ class QzoneAPI:
                     logger.info(f"正在阅读说说内容: {content[:20]}...")
                     # 提取图片信息
                     images = []
-                    # TODO 图片可读化
                     async def append_image_description(url: str):
                         if not url:
                             return
@@ -677,7 +676,7 @@ class QzoneAPI:
 
                     # 提取转发内容
                     rt_con = _repost_content(msg)
-                    if detail and not (content or rt_con or images or videos):
+                    if (detail or image_urls) and not (content or rt_con or images or videos):
                         unavailable_feeds = True
                         logger.warning("说说配图暂时无法读取，稍后重试")
                         continue
@@ -878,13 +877,13 @@ class QzoneAPI:
                         description = await image_manager.get_image_description(image_base64)
                         images.append(description)
                     except Exception as e:
-                        logger.info(f'图片识别失败: {url} - {str(e)}')
+                        logger.warning(f'图片识别失败: {url} - {str(e)}')
                 # 获取视频url
                 video_div = soup.select_one('div.img-box.f-video-wrap.play')
                 if video_div and 'url3' in video_div.attrs:
                     videos.append(video_div['url3'])
                 videos = list(dict.fromkeys(videos))
-                if detail and not (text or rt_con or images or videos):
+                if (detail or image_urls) and not (text or rt_con or images or videos):
                     logger.warning("说说配图暂时无法读取，稍后重试")
                     continue
                 # 获取评论内容

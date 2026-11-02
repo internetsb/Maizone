@@ -417,3 +417,21 @@ def test_partial_detail_preserves_known_outer_text_or_quote(harness, source, mis
     assert feed["content"] == expected_text
     assert feed["rt_con"] == expected_quote
     assert_outer_comment(feed)
+
+
+@pytest.mark.parametrize("source", ["html", "messages"])
+def test_normal_image_only_feed_is_not_processed_without_vision(harness, monkeypatch, source):
+    monkeypatch.setattr(harness.module, "image_manager", harness.module.NoImageManager())
+    if source == "html":
+        image_feed = desktop_feed(text="")
+        image_feed["html"] += f'<div class="img-box"><img src="{PICTURE}"></div>'
+        harness.feeds = [image_feed, desktop_feed(tid="readable-feed", text="正常内容")]
+        feeds = run(harness.api.get_qzone_list())
+    else:
+        image_feed = message()
+        image_feed["pic"] = [{"url1": PICTURE}]
+        harness.messages = [image_feed, message(tid="readable-feed", content="正常内容")]
+        feeds = run(harness.api.get_list(AUTHOR, 5, False))
+
+    assert [feed["tid"] for feed in feeds] == ["readable-feed"]
+    assert not detail_requests(harness)
