@@ -158,11 +158,8 @@ class FeedMonitor:
                         logger.warning(f"未进行任何处理: {message}")
                     else:
                         logger.info(f"已阅读{qq}的说说，数量：{len(message)}条")
-                # 若是白名单模式，则跳过其他QQ
-                if authority_type == "whitelist":
-                    continue
-                # 否则继续处理QQ
-                else:
+                # 白名单模式只跳过其他 QQ 的动态，不跳过自己说说下的评论。
+                if authority_type != "whitelist":
                     await monitor_read_feed()
                 # 自动回复
                 if self.config.auto_reply.enable_auto_reply:
