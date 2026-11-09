@@ -11,6 +11,7 @@ import os
 import random
 from pathlib import Path
 
+from . import activity_log
 from .qzone_api import create_qzone_api
 from .cookie import renew_cookies
 from .image import generate_images
@@ -370,6 +371,9 @@ async def send_feed(topic: str) -> Tuple[bool, str]:
     result = await qzone.publish_emotion(message, images_list)
     if result is not None:
         logger.info(f"发布说说ID：{result}")
+        await activity_log.record(
+            "send_feed", logger=logger, target="自己的空间", feed=topic, text=message
+        )
         return True, f"已发送说说：【{message}】"
     else:
         logger.error("发送说说失败")
@@ -454,10 +458,17 @@ async def read_feed(target_qq: str, enable_comment: bool = True) -> Tuple[bool, 
                 comment_message = llm_response.get("response", "")
                 if allow_skip and _is_skip_comment(comment_message):
                     logger.info(f"选择不评论说说 {fid}: {comment_message!r}")
+                    await activity_log.record(
+                        "skip_comment", logger=logger, target=target_name, feed=content
+                    )
                 else:
                     result = await qzone.comment(fid, target_qq, comment_message)
                     if result:
                         logger.info(f"评论成功：{comment_message}")
+                        await activity_log.record(
+                            "comment", logger=logger, target=target_name,
+                            feed=content, text=comment_message,
+                        )
                     else:
                         logger.error("评论失败")
             elif not enable_comment:
@@ -556,10 +567,17 @@ async def monitor_read_feed() -> Tuple[bool, list[dict[str, Any]]]:
                 comment = response.get("response", "")
                 if allow_skip and _is_skip_comment(comment):
                     logger.info(f"选择不评论'{target_qq}'的说说：{comment!r}")
+                    await activity_log.record(
+                        "skip_comment", logger=logger, target=target_name, feed=content
+                    )
                 else:
                     result = await qzone.comment(fid, target_qq, comment)
                     if result:
                         logger.info(f"成功对说说'{content[:30]}...'发表评论：{comment}")
+                        await activity_log.record(
+                            "comment", logger=logger, target=target_name,
+                            feed=content, text=comment,
+                        )
                     else:
                         logger.error(f"对说说'{content[:30]}...'发表评论失败")
             # 进行点赞
@@ -668,6 +686,10 @@ async def reply_feed() -> Tuple[bool, str]:
                 )
                 if result:
                     logger.info(f"成功回复{comment['nickname']}的评论'{comment['content'][:30]}...'：{reply_message}")
+                    await activity_log.record(
+                        "reply_comment", logger=logger, target=comment["nickname"],
+                        feed=content, comment=comment["content"], text=reply_message,
+                    )
                     reply_count += 1
                 else:
                     logger.error(f"回复{comment['nickname']}的评论'{comment['content'][:30]}...'失败")
